@@ -9,6 +9,7 @@ import {
   dbRemoveConfig
 } from '../services/db.js';
 import { syncEngine } from '../services/webrtc.js';
+import { syncLogger } from '../services/logger.js';
 import { CONFIG } from '../config.js';
 
 export const useListStore = defineStore('lists', {
@@ -16,6 +17,7 @@ export const useListStore = defineStore('lists', {
     isLoaded: false,
     lists: [],
     activeListId: null,
+    isSyncing: false,
     
     // Setup & Configuration
     sharedPhrase: '',
@@ -570,7 +572,35 @@ export const useListStore = defineStore('lists', {
 
     // --- Deterministic LWW Synchronization Protocol ---
 
+    async syncNow() {
+      if (this.isSyncing) return;
+      this.isSyncing = true;
+      syncLogger.info('SYNC', 'User initiated manual sync request');
+
+      try {
+        const res = syncEngine.triggerSyncNow();
+        if (this.syncState.peerCount > 0) {
+          this.broadcastSyncState();
+        }
+        return res;
+      } finally {
+        setTimeout(() => {
+          this.isSyncing = false;
+        }, 1200);
+      }
+    },
+
+    broadcastSyncState() {
+      syncLogger.info('SYNC', `Broadcasting state snapshot (${this.lists.length} lists) to all peers`);
+      syncEngine.broadcast({
+        type: 'sync_state',
+        lists: this.lists,
+        sentAt: Date.now()
+      });
+    },
+
     broadcastMutation(mutation) {
+      syncLogger.debug('SYNC', `Broadcasting mutation ${mutation.type}`);
       syncEngine.broadcast({
         type: 'mutation',
         mutation,
@@ -583,7 +613,9 @@ export const useListStore = defineStore('lists', {
 
       switch (msg.type) {
         case 'channel_opened':
-          // A new peer connected: send our current state
+        case 'request_sync':
+          // Peer connected or requested sync: send our current state
+          syncLogger.info('SYNC', `Peer ${fromPeerId} requested sync state (${this.lists.length} lists)`);
           syncEngine.sendToPeer(fromPeerId, {
             type: 'sync_state',
             lists: this.lists,
@@ -593,8 +625,10 @@ export const useListStore = defineStore('lists', {
 
         case 'sync_state':
           if (Array.isArray(msg.lists)) {
+            syncLogger.success('SYNC', `Received state from ${fromPeerId} (${msg.lists.length} lists)`);
             const hasNewerLocalData = this.mergeRemoteState(msg.lists);
             if (hasNewerLocalData) {
+              syncLogger.info('SYNC', `Local state has newer updates -> replying with merged state to ${fromPeerId}`);
               // Send back updated merged state so peer gets the newer changes
               syncEngine.sendToPeer(fromPeerId, {
                 type: 'sync_state',
@@ -607,6 +641,7 @@ export const useListStore = defineStore('lists', {
 
         case 'mutation':
           if (msg.mutation) {
+            syncLogger.info('SYNC', `Applying remote mutation from ${fromPeerId}: ${msg.mutation.type}`);
             this.applyRemoteMutation(msg.mutation);
           }
           break;

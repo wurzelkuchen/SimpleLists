@@ -1,5 +1,6 @@
 import { CONFIG } from '../config.js';
 import { generateUUID } from './crypto.js';
+import { syncLogger } from './logger.js';
 
 /**
  * Multi-device WebRTC P2P Mesh & Signaling Synchronization Engine
@@ -12,6 +13,7 @@ import { generateUUID } from './crypto.js';
  * - Zero user data passed through signaling (only ephemeral SDP offers/answers & ICE candidates)
  * - End-to-end encrypted payload over WebRTC DataChannel
  * - Resilient automatic reconnection on network change or visibility change
+ * - Comprehensive real-time diagnostic logging
  */
 
 class WebRTCSyncEngine {
@@ -39,9 +41,13 @@ class WebRTCSyncEngine {
 
     // Window listeners for auto reconnection
     if (typeof window !== 'undefined') {
-      window.addEventListener('online', () => this.handleNetworkReturn());
+      window.addEventListener('online', () => {
+        syncLogger.info('SIGNAL', 'Device came online, checking connection...');
+        this.handleNetworkReturn();
+      });
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
+          syncLogger.debug('SIGNAL', 'App visible, checking connection...');
           this.handleNetworkReturn();
         }
       });
@@ -83,7 +89,7 @@ class WebRTCSyncEngine {
       try {
         listener(info);
       } catch (e) {
-        console.error('Status listener error:', e);
+        syncLogger.error('STORE', 'Status listener exception', e.message);
       }
     }
   }
@@ -93,7 +99,7 @@ class WebRTCSyncEngine {
       try {
         listener(msg, fromPeerId);
       } catch (e) {
-        console.error('Message listener error:', e);
+        syncLogger.error('SYNC', 'Message listener exception', e.message);
       }
     }
   }
@@ -106,6 +112,11 @@ class WebRTCSyncEngine {
       this.signalingUrl = customSignalingUrl;
     }
 
+    syncLogger.info('SIGNAL', `Initializing room sync for room: ${roomId.substring(0, 12)}...`, {
+      myPeerId: this.myPeerId,
+      signalingUrl: this.signalingUrl
+    });
+
     this.setStatus('connecting');
     this.connectSignaling();
   }
@@ -114,6 +125,8 @@ class WebRTCSyncEngine {
     this.isExplicitlyStopped = true;
     clearTimeout(this.reconnectTimer);
     clearInterval(this.heartbeatTimer);
+
+    syncLogger.warn('SIGNAL', 'Disconnecting from sync room & closing peers...');
 
     // Send leave signal before teardown
     try {
@@ -145,6 +158,7 @@ class WebRTCSyncEngine {
     this.signalingState = 'disconnected';
     this.signalingError = null;
     this.setStatus('disconnected');
+    syncLogger.info('SIGNAL', 'Sync engine stopped');
   }
 
   handleNetworkReturn() {
@@ -182,6 +196,8 @@ class WebRTCSyncEngine {
       this.signalingError = null;
       this.notifyStatus();
 
+      syncLogger.info('SIGNAL', `Connecting to signaling relay WebSocket (${isPublic ? 'Public Relay' : wsUrl})...`);
+
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
@@ -189,6 +205,7 @@ class WebRTCSyncEngine {
         this.signalingState = 'connected';
         this.signalingError = null;
         this.setStatus('connecting');
+        syncLogger.success('SIGNAL', `Signaling WebSocket connected (${isPublic ? 'ntfy.sh topic ' + topic : wsUrl})`);
 
         if (isPublic) {
           // Announce presence to the public topic
@@ -243,7 +260,7 @@ class WebRTCSyncEngine {
             this.handleSignalingMessage(raw);
           }
         } catch (err) {
-          console.warn('Signaling message parse error:', err);
+          syncLogger.warn('SIGNAL', `Signaling parse warning: ${err.message}`);
         }
       };
 
@@ -254,20 +271,24 @@ class WebRTCSyncEngine {
           this.signalingError = isPublic 
             ? 'Public relay connection interrupted, reconnecting...' 
             : `Unable to reach signaling server at ${this.signalingUrl}`;
+          syncLogger.warn('SIGNAL', `Signaling closed abnormally (code ${event.code}), scheduling reconnect...`);
+        } else {
+          syncLogger.info('SIGNAL', 'Signaling connection closed cleanly');
         }
         this.scheduleReconnect();
       };
 
-      this.ws.onerror = () => {
+      this.ws.onerror = (e) => {
         clearInterval(this.heartbeatTimer);
         this.signalingState = 'error';
         this.signalingError = isPublic 
-          ? 'Network error reaching public relay. Retrying...' 
+          ? 'Network issue reaching public relay. Retrying...' 
           : `Connection failed for ${this.signalingUrl}.`;
+        syncLogger.error('SIGNAL', 'Signaling WebSocket error occurred');
         this.notifyStatus();
       };
     } catch (e) {
-      console.warn('WebSocket connect error:', e);
+      syncLogger.error('SIGNAL', `WebSocket initiation error: ${e.message}`);
       this.signalingState = 'error';
       this.signalingError = `Error connecting to signaling: ${e.message || e}`;
       this.scheduleReconnect();
@@ -280,6 +301,7 @@ class WebRTCSyncEngine {
 
     this.reconnectAttempts++;
     const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 10000);
+    syncLogger.debug('SIGNAL', `Scheduling reconnect attempt #${this.reconnectAttempts} in ${Math.round(delay)}ms`);
 
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => {
@@ -290,15 +312,18 @@ class WebRTCSyncEngine {
   sendSignal(msg) {
     if (this.isPublicRelay) {
       const topic = `simplelists_v1_${this.roomId}`;
+      syncLogger.debug('SIGNAL', `Sending signal '${msg.type}' via relay`, { target: msg.targetPeerId || 'all' });
+
       fetch(`https://ntfy.sh/${topic}`, {
         method: 'POST',
         body: JSON.stringify(msg),
         headers: { 'Title': 'simplelists-signal' }
       }).catch(err => {
-        console.warn('Public signal send failed:', err);
+        syncLogger.warn('SIGNAL', `Public signal post failed: ${err.message}`);
       });
     } else {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        syncLogger.debug('SIGNAL', `Sending signal '${msg.type}' via direct WS`, { target: msg.targetPeerId || 'all' });
         this.ws.send(JSON.stringify(msg));
       }
     }
@@ -316,6 +341,7 @@ class WebRTCSyncEngine {
       case 'ping': {
         const otherPeerId = sender;
         if (otherPeerId) {
+          syncLogger.info('SIGNAL', `Peer discovery signal (${msg.type}) from: ${otherPeerId}`);
           // If we are already connected to this peer, don't re-initiate
           const existing = this.peers.get(otherPeerId);
           if (!existing || !existing.dc || existing.dc.readyState !== 'open') {
@@ -326,8 +352,9 @@ class WebRTCSyncEngine {
               senderPeerId: this.myPeerId,
               targetPeerId: otherPeerId
             });
-            // If our ID is higher, initiate WebRTC offer
+            // If our ID is lexicographically higher, initiate WebRTC offer
             if (this.myPeerId > otherPeerId) {
+              syncLogger.info('WEBRTC', `Initiating WebRTC handshake with ${otherPeerId} (initiator rule: myId > peerId)`);
               this.handleDiscoveredPeer(otherPeerId);
             }
           }
@@ -338,9 +365,11 @@ class WebRTCSyncEngine {
       case 'announce': {
         if (msg.targetPeerId === this.myPeerId && msg.senderPeerId) {
           const otherPeerId = msg.senderPeerId;
+          syncLogger.info('SIGNAL', `Received announcement from peer: ${otherPeerId}`);
           const existing = this.peers.get(otherPeerId);
           if (!existing || !existing.dc || existing.dc.readyState !== 'open') {
             if (this.myPeerId > otherPeerId) {
+              syncLogger.info('WEBRTC', `Initiating WebRTC offer to announced peer ${otherPeerId}`);
               this.handleDiscoveredPeer(otherPeerId);
             }
           }
@@ -353,8 +382,9 @@ class WebRTCSyncEngine {
         this.signalingError = null;
         this.notifyStatus();
         const peers = msg.peers || [];
+        syncLogger.info('SIGNAL', `Received active peer list (${peers.length} peers)`, peers);
         for (const peerId of peers) {
-          if (peerId !== this.myPeerId) {
+          if (peerId !== this.myPeerId && this.myPeerId > peerId) {
             this.handleDiscoveredPeer(peerId);
           }
         }
@@ -363,13 +393,17 @@ class WebRTCSyncEngine {
 
       case 'peer-joined': {
         if (msg.peerId && msg.peerId !== this.myPeerId) {
-          this.handleDiscoveredPeer(msg.peerId);
+          syncLogger.info('SIGNAL', `Peer joined: ${msg.peerId}`);
+          if (this.myPeerId > msg.peerId) {
+            this.handleDiscoveredPeer(msg.peerId);
+          }
         }
         break;
       }
 
       case 'offer': {
         if ((msg.targetPeerId === this.myPeerId || !msg.targetPeerId) && msg.senderPeerId && msg.offer) {
+          syncLogger.info('WEBRTC', `Received SDP offer from ${msg.senderPeerId}`);
           this.handleIncomingOffer(msg.senderPeerId, msg.offer);
         }
         break;
@@ -377,6 +411,7 @@ class WebRTCSyncEngine {
 
       case 'answer': {
         if ((msg.targetPeerId === this.myPeerId || !msg.targetPeerId) && msg.senderPeerId && msg.answer) {
+          syncLogger.success('WEBRTC', `Received SDP answer from ${msg.senderPeerId}`);
           this.handleIncomingAnswer(msg.senderPeerId, msg.answer);
         }
         break;
@@ -384,6 +419,7 @@ class WebRTCSyncEngine {
 
       case 'ice-candidate': {
         if ((msg.targetPeerId === this.myPeerId || !msg.targetPeerId) && msg.senderPeerId && msg.candidate) {
+          syncLogger.debug('WEBRTC', `Received ICE candidate from ${msg.senderPeerId}`);
           this.handleIncomingCandidate(msg.senderPeerId, msg.candidate);
         }
         break;
@@ -393,6 +429,7 @@ class WebRTCSyncEngine {
       case 'leave': {
         const leftPeerId = msg.peerId || msg.senderPeerId;
         if (leftPeerId) {
+          syncLogger.warn('WEBRTC', `Peer left: ${leftPeerId}`);
           this.cleanupPeer(leftPeerId);
         }
         break;
@@ -413,9 +450,10 @@ class WebRTCSyncEngine {
     if (this.peers.has(otherPeerId)) {
       const p = this.peers.get(otherPeerId);
       if (p.dc && p.dc.readyState === 'open') return;
-      if (p.state === 'offering') return;
+      if (p.state === 'offering' && p.pc && p.pc.signalingState !== 'closed') return;
     }
 
+    syncLogger.info('WEBRTC', `Creating RTCPeerConnection & DataChannel for peer: ${otherPeerId}`);
     const pc = this.createPeerConnection(otherPeerId);
     const dc = pc.createDataChannel('sync', { ordered: true });
     this.setupDataChannel(otherPeerId, dc);
@@ -424,6 +462,7 @@ class WebRTCSyncEngine {
     pc.createOffer()
       .then(offer => pc.setLocalDescription(offer))
       .then(() => {
+        syncLogger.info('WEBRTC', `Sending SDP offer to ${otherPeerId}`);
         this.sendSignal({
           type: 'offer',
           roomId: this.roomId,
@@ -432,14 +471,16 @@ class WebRTCSyncEngine {
           offer: pc.localDescription
         });
       })
-      .catch(err => console.error('Error creating WebRTC offer:', err));
+      .catch(err => {
+        syncLogger.error('WEBRTC', `Error creating WebRTC offer for ${otherPeerId}: ${err.message}`);
+      });
   }
 
   async handleIncomingOffer(senderPeerId, offer) {
     let peer = this.peers.get(senderPeerId);
     let pc = peer ? peer.pc : null;
 
-    if (!pc) {
+    if (!pc || pc.signalingState === 'closed') {
       pc = this.createPeerConnection(senderPeerId);
       this.peers.set(senderPeerId, { pc, dc: null, state: 'answering', pendingCandidates: [] });
       peer = this.peers.get(senderPeerId);
@@ -447,14 +488,16 @@ class WebRTCSyncEngine {
 
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      syncLogger.debug('WEBRTC', `Remote SDP description set for ${senderPeerId}`);
 
       // Drain and apply any queued ICE candidates that arrived before the offer
       if (peer && peer.pendingCandidates && peer.pendingCandidates.length > 0) {
+        syncLogger.debug('WEBRTC', `Flushing ${peer.pendingCandidates.length} queued ICE candidates for ${senderPeerId}`);
         for (const cand of peer.pendingCandidates) {
           try {
             await pc.addIceCandidate(new RTCIceCandidate(cand));
           } catch (e) {
-            console.warn('Error applying queued ICE candidate:', e);
+            syncLogger.warn('WEBRTC', `Queued ICE candidate warning: ${e.message}`);
           }
         }
         peer.pendingCandidates = [];
@@ -463,6 +506,7 @@ class WebRTCSyncEngine {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
 
+      syncLogger.info('WEBRTC', `Sending SDP answer to ${senderPeerId}`);
       this.sendSignal({
         type: 'answer',
         roomId: this.roomId,
@@ -471,7 +515,7 @@ class WebRTCSyncEngine {
         answer: pc.localDescription
       });
     } catch (err) {
-      console.error('Error handling WebRTC offer:', err);
+      syncLogger.error('WEBRTC', `Error handling WebRTC offer from ${senderPeerId}: ${err.message}`);
     }
   }
 
@@ -481,20 +525,22 @@ class WebRTCSyncEngine {
 
     try {
       await peer.pc.setRemoteDescription(new RTCSessionDescription(answer));
+      syncLogger.success('WEBRTC', `Remote answer applied for ${senderPeerId}`);
 
       // Drain and apply any queued ICE candidates that arrived before the answer
       if (peer.pendingCandidates && peer.pendingCandidates.length > 0) {
+        syncLogger.debug('WEBRTC', `Flushing ${peer.pendingCandidates.length} queued ICE candidates for ${senderPeerId}`);
         for (const cand of peer.pendingCandidates) {
           try {
             await peer.pc.addIceCandidate(new RTCIceCandidate(cand));
           } catch (e) {
-            console.warn('Error applying queued ICE candidate:', e);
+            syncLogger.warn('WEBRTC', `Queued ICE candidate warning: ${e.message}`);
           }
         }
         peer.pendingCandidates = [];
       }
     } catch (err) {
-      console.error('Error handling WebRTC answer:', err);
+      syncLogger.error('WEBRTC', `Error handling WebRTC answer from ${senderPeerId}: ${err.message}`);
     }
   }
 
@@ -515,7 +561,7 @@ class WebRTCSyncEngine {
     try {
       await peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
     } catch (err) {
-      console.warn('addIceCandidate error:', err);
+      syncLogger.debug('WEBRTC', `addIceCandidate error: ${err.message}`);
     }
   }
 
@@ -535,6 +581,7 @@ class WebRTCSyncEngine {
     };
 
     pc.ondatachannel = (event) => {
+      syncLogger.info('WEBRTC', `Incoming DataChannel from peer: ${targetPeerId}`);
       const dc = event.channel;
       const peer = this.peers.get(targetPeerId);
       if (peer) {
@@ -544,6 +591,7 @@ class WebRTCSyncEngine {
     };
 
     pc.onconnectionstatechange = () => {
+      syncLogger.info('WEBRTC', `Peer ${targetPeerId} connection state -> ${pc.connectionState}`);
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         this.cleanupPeer(targetPeerId);
       }
@@ -554,6 +602,7 @@ class WebRTCSyncEngine {
 
   setupDataChannel(peerId, dc) {
     dc.onopen = () => {
+      syncLogger.success('SYNC', `DataChannel OPEN with peer: ${peerId} 🚀`);
       this.notifyStatus();
       // On DataChannel open, trigger initial state synchronization request
       this.notifyMessage({ type: 'channel_opened' }, peerId);
@@ -564,15 +613,17 @@ class WebRTCSyncEngine {
         const payload = JSON.parse(event.data);
         this.notifyMessage(payload, peerId);
       } catch (err) {
-        console.warn('DataChannel message parse error:', err);
+        syncLogger.warn('SYNC', `DataChannel message parse error: ${err.message}`);
       }
     };
 
     dc.onclose = () => {
+      syncLogger.warn('SYNC', `DataChannel CLOSED with peer: ${peerId}`);
       this.cleanupPeer(peerId);
     };
 
-    dc.onerror = () => {
+    dc.onerror = (e) => {
+      syncLogger.error('SYNC', `DataChannel error with peer: ${peerId}`);
       this.cleanupPeer(peerId);
     };
   }
@@ -596,6 +647,7 @@ class WebRTCSyncEngine {
         peer.dc.send(JSON.stringify(data));
         return true;
       } catch (e) {
+        syncLogger.error('SYNC', `Error sending to peer ${peerId}: ${e.message}`);
         return false;
       }
     }
@@ -610,10 +662,60 @@ class WebRTCSyncEngine {
         try {
           peer.dc.send(serialized);
           sentCount++;
-        } catch (e) {}
+        } catch (e) {
+          syncLogger.error('SYNC', `Error broadcasting to peer ${peerId}: ${e.message}`);
+        }
       }
     }
     return sentCount;
+  }
+
+  /**
+   * Triggers an immediate active sync cycle:
+   * 1. Reconnects signaling if disconnected
+   * 2. Broadcasts discovery 'join' / 'ping' on signaling relay
+   * 3. Sends full sync_state + request_sync to all open peer DataChannels
+   */
+  triggerSyncNow() {
+    syncLogger.info('SYNC', '▶ Manual "Sync Now" triggered');
+
+    if (!this.roomId) {
+      syncLogger.warn('SYNC', 'Cannot sync: No room configured. Please enter a shared phrase.');
+      return { success: false, reason: 'no_room' };
+    }
+
+    // 1. If signaling is disconnected or errored, force reconnect
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      syncLogger.info('SIGNAL', 'Signaling offline, attempting immediate reconnection...');
+      this.connectSignaling();
+    } else {
+      // 2. Announce presence to discover new peers
+      this.sendSignal({
+        type: 'join',
+        roomId: this.roomId,
+        senderPeerId: this.myPeerId,
+        peerId: this.myPeerId
+      });
+      this.sendSignal({
+        type: 'ping',
+        roomId: this.roomId,
+        senderPeerId: this.myPeerId,
+        peerId: this.myPeerId
+      });
+    }
+
+    // 3. Trigger peer message sync on all open data channels
+    let activePeers = 0;
+    for (const [peerId, peer] of this.peers.entries()) {
+      if (peer.dc && peer.dc.readyState === 'open') {
+        activePeers++;
+        // Request state from peer & tell them to sync
+        this.notifyMessage({ type: 'request_sync' }, peerId);
+      }
+    }
+
+    syncLogger.success('SYNC', `Sync cycle dispatched (Active DataChannels: ${activePeers})`);
+    return { success: true, activePeers };
   }
 }
 

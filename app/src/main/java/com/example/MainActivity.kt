@@ -171,7 +171,15 @@ fun SimpleListsWebView(
             view: WebView,
             request: WebResourceRequest
           ): WebResourceResponse? {
-            return assetLoader.shouldInterceptRequest(request.url)
+            val url = request.url
+            if (url.host == "appassets.androidplatform.net" && url.path == "/favicon.ico") {
+              return WebResourceResponse(
+                "image/x-icon",
+                "UTF-8",
+                java.io.ByteArrayInputStream(ByteArray(0))
+              )
+            }
+            return assetLoader.shouldInterceptRequest(url)
           }
 
           override fun onReceivedError(
@@ -179,6 +187,10 @@ fun SimpleListsWebView(
             request: WebResourceRequest?,
             error: android.webkit.WebResourceError?
           ) {
+            val urlStr = request?.url?.toString() ?: ""
+            if (urlStr.endsWith("/favicon.ico")) {
+              return
+            }
             android.util.Log.e(
               "SimpleListsWebView",
               "WebResourceError: ${error?.description} for ${request?.url}"
