@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#FEF7FF" />
+    <meta name="description" content="Simple Lists - Fast offline-first checklist app with automatic WebRTC peer-to-peer synchronization" />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet">
+    <title>Simple Lists</title>
+    <style>
+      /* Safe area insets support for native status & navigation bars */
+      :root {
+        --sat: env(safe-area-inset-top, 0px);
+        --sab: env(safe-area-inset-bottom, 0px);
+        --sal: env(safe-area-inset-left, 0px);
+        --sar: env(safe-area-inset-right, 0px);
+      }
+      body {
+        font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      }
+    </style>
+  </head>
+  <body class="bg-[#FEF7FF] text-[#1D1B20] antialiased select-none touch-pan-y overscroll-none min-h-screen overflow-x-hidden">
+    <div id="app" class="h-screen w-screen flex flex-col overflow-hidden"></div>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

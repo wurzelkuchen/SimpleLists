@@ -1,0 +1,6 @@
+{
+  "name": "Simple Lists",
+  "description": "Offline-capable synchronized checklist app with deterministic P2P WebRTC data sync and shared phrase room discovery",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

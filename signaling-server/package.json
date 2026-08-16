@@ -1,0 +1,16 @@
+{
+  "name": "simple-lists-signaling-server",
+  "version": "1.0.0",
+  "description": "Minimal self-hostable in-memory WebSocket signaling server for Simple Lists WebRTC peer discovery",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test.js"
+  },
+  "keywords": ["webrtc", "signaling", "p2p", "simple-lists"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
