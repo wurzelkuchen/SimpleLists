@@ -52,7 +52,7 @@
           :class="[
             store.syncState.peerCount > 0 
               ? 'bg-[#E8DEF8] text-[#21005D] border border-[#CAC4D0]/60'
-              : store.syncState.status === 'connecting'
+              : store.syncState.signalingState === 'connected'
               ? 'bg-amber-100 text-amber-900 border border-amber-300'
               : 'bg-[#F3F0F7] text-[#49454F] border border-[#CAC4D0]/60'
           ]"
@@ -68,8 +68,8 @@
               class="relative inline-flex rounded-full h-2 w-2"
               :class="[
                 store.syncState.peerCount > 0 ? 'bg-emerald-600' :
-                store.syncState.status === 'connecting' ? 'bg-amber-500 animate-pulse' :
-                'bg-slate-400'
+                store.syncState.signalingState === 'connected' ? 'bg-amber-500' :
+                'bg-rose-400'
               ]"
             ></span>
           </span>
@@ -146,7 +146,10 @@ const syncLabel = computed(() => {
   if (store.syncState.peerCount > 0) {
     return `${store.syncState.peerCount} ${store.syncState.peerCount === 1 ? 'Peer' : 'Peers'}`;
   }
-  if (store.syncState.status === 'connecting') {
+  if (store.syncState.signalingState === 'connected') {
+    return '0 Peers';
+  }
+  if (store.syncState.signalingState === 'connecting') {
     return 'Connecting';
   }
   return 'Offline';

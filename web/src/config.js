@@ -11,17 +11,9 @@ export const CONFIG = {
   APP_VERSION: '1.0.0',
   APP_PROTOCOL_VERSION: 1,
 
-  // Default signaling server endpoint (Node.js WebSocket signaling server)
+  // Default signaling server endpoint (Public zero-setup relay or custom WebSocket)
   // Can also be customized in Settings if running on a private LAN or self-hosted host
-  DEFAULT_SIGNALING_URL: (function() {
-    if (typeof window !== 'undefined' && window.location) {
-      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        return 'ws://localhost:8080';
-      }
-    }
-    // Default public signaling relay fallback
-    return 'wss://signaling.simplelists.app';
-  })(),
+  DEFAULT_SIGNALING_URL: 'public',
 
   // PBKDF2 derivation parameters
   PBKDF2_SALT: 'simple-lists:v1:app-domain-salt:2025-08-16',

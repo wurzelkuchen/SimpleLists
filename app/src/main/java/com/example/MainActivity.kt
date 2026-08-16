@@ -144,6 +144,7 @@ fun SimpleListsWebView(
           javaScriptEnabled = true
           domStorageEnabled = true
           databaseEnabled = true
+          mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
           
           // Disable unnecessary file and content access capabilities
           allowFileAccess = false

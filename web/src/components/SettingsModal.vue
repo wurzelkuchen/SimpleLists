@@ -30,16 +30,24 @@
         <!-- Live Connection Status Card -->
         <div class="bg-white border border-[#CAC4D0] rounded-2xl p-4 space-y-3 shadow-sm">
           <div class="flex items-center justify-between">
-            <span class="font-bold text-[#1D1B20] uppercase tracking-wider text-xs">Sync Status</span>
+            <span class="font-bold text-[#1D1B20] uppercase tracking-wider text-xs">P2P Mesh Status</span>
             <span
               class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider"
               :class="[
                 store.syncState.peerCount > 0 ? 'bg-[#E8DEF8] text-[#21005D] border border-[#CAC4D0]' :
-                store.syncState.status === 'connecting' ? 'bg-amber-100 text-amber-900 border border-amber-300' :
-                'bg-[#F3F0F7] text-[#49454F] border border-[#CAC4D0]'
+                store.syncState.signalingState === 'connected' ? 'bg-amber-100 text-amber-900 border border-amber-300' :
+                'bg-red-50 text-red-800 border border-red-200'
               ]"
             >
-              {{ store.syncState.status }} ({{ store.syncState.peerCount }} peers)
+              <template v-if="store.syncState.peerCount > 0">
+                {{ store.syncState.peerCount }} {{ store.syncState.peerCount === 1 ? 'Peer Connected' : 'Peers Connected' }}
+              </template>
+              <template v-else-if="store.syncState.signalingState === 'connected'">
+                Signaling Ready (0 peers)
+              </template>
+              <template v-else>
+                Signaling Offline
+              </template>
             </span>
           </div>
 
@@ -52,6 +60,19 @@
               <span class="text-[#79747E] block text-[10px] uppercase font-bold font-sans">Peer ID</span>
               <span class="text-[#1D1B20] font-bold truncate block">{{ store.syncState.myPeerId || 'N/A' }}</span>
             </div>
+          </div>
+
+          <!-- Signaling Connection Diagnostic Banner -->
+          <div v-if="store.syncState.signalingError || store.syncState.signalingState === 'error'" class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-900 space-y-1">
+            <div class="font-bold flex items-center space-x-1.5">
+              <svg class="w-4 h-4 text-amber-700 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span>Signaling Issue Detected</span>
+            </div>
+            <p class="text-amber-800">
+              {{ store.syncState.signalingError || 'Connecting to public discovery network...' }}
+            </p>
           </div>
         </div>
 
@@ -70,19 +91,29 @@
             </button>
           </div>
           <p class="text-[11px] font-medium text-[#49454F]">
-            Changing your phrase disconnects from this room and switches to a newly derived sync room.
+            Any devices using this exact shared phrase will automatically discover each other and sync lists in real-time.
           </p>
         </div>
 
-        <!-- Custom Signaling URL -->
-        <div class="bg-white border border-[#CAC4D0] rounded-2xl p-4 space-y-2 shadow-sm">
-          <label class="block font-bold text-[#1D1B20] text-xs uppercase tracking-wider">
-            Signaling Server URL
-          </label>
+        <!-- Custom Signaling URL & Presets -->
+        <div class="bg-white border border-[#CAC4D0] rounded-2xl p-4 space-y-3 shadow-sm">
+          <div class="flex items-center justify-between">
+            <label class="block font-bold text-[#1D1B20] text-xs uppercase tracking-wider">
+              Signaling Relay / Server
+            </label>
+            <span
+              class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md"
+              :class="store.syncState.signalingState === 'connected' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'"
+            >
+              {{ store.syncState.signalingState === 'connected' ? 'Connected' : store.syncState.signalingState }}
+            </span>
+          </div>
+
           <div class="flex items-center space-x-2">
             <input
               v-model="signalingInput"
               type="text"
+              placeholder="public"
               class="flex-1 bg-[#F3F0F7] border border-[#CAC4D0] rounded-xl px-3 py-2 text-xs text-[#1D1B20] font-mono focus:outline-none focus:border-[#6750A4]"
             />
             <button
@@ -91,6 +122,33 @@
             >
               Save
             </button>
+          </div>
+
+          <!-- Quick presets -->
+          <div class="space-y-1 pt-1">
+            <span class="text-[10px] font-bold text-[#79747E] uppercase tracking-wider block">Quick Presets:</span>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                @click="applyPreset('public')"
+                class="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg text-[11px] font-medium text-emerald-900 transition-colors"
+                title="Global zero-setup public relay (default)"
+              >
+                🌐 Public Relay (Default)
+              </button>
+              <button
+                @click="applyPreset('ws://localhost:8080')"
+                class="px-2.5 py-1 bg-[#F3F0F7] hover:bg-[#E8DEF8] border border-[#CAC4D0] rounded-lg text-[11px] font-mono text-[#1D1B20] transition-colors"
+              >
+                Localhost (8080)
+              </button>
+              <button
+                @click="applyPreset('ws://10.0.2.2:8080')"
+                class="px-2.5 py-1 bg-[#F3F0F7] hover:bg-[#E8DEF8] border border-[#CAC4D0] rounded-lg text-[11px] font-mono text-[#1D1B20] transition-colors"
+                title="Android Emulator host loopback"
+              >
+                Emulator (10.0.2.2:8080)
+              </button>
+            </div>
           </div>
         </div>
 
@@ -141,6 +199,11 @@ const store = useListStore();
 const emit = defineEmits(['request-confirm']);
 
 const signalingInput = ref(store.signalingUrl);
+
+function applyPreset(url) {
+  signalingInput.value = url;
+  store.updateSignalingUrl(url);
+}
 
 function saveSignalingUrl() {
   if (signalingInput.value.trim()) {
