@@ -155,7 +155,15 @@ fun SimpleListsWebView(
           mediaPlaybackRequiresUserGesture = false
         }
 
-        webChromeClient = WebChromeClient()
+        webChromeClient = object : WebChromeClient() {
+          override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
+            android.util.Log.d(
+              "SimpleListsWebView",
+              "${consoleMessage?.message()} -- From line ${consoleMessage?.lineNumber()} of ${consoleMessage?.sourceId()}"
+            )
+            return true
+          }
+        }
 
         webViewClient = object : WebViewClient() {
           override fun shouldInterceptRequest(
@@ -163,6 +171,18 @@ fun SimpleListsWebView(
             request: WebResourceRequest
           ): WebResourceResponse? {
             return assetLoader.shouldInterceptRequest(request.url)
+          }
+
+          override fun onReceivedError(
+            view: WebView?,
+            request: WebResourceRequest?,
+            error: android.webkit.WebResourceError?
+          ) {
+            android.util.Log.e(
+              "SimpleListsWebView",
+              "WebResourceError: ${error?.description} for ${request?.url}"
+            )
+            super.onReceivedError(view, request, error)
           }
 
           override fun shouldOverrideUrlLoading(
