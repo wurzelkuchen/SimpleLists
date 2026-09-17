@@ -33,7 +33,7 @@
           v-model="importText"
           rows="8"
           placeholder="Milk&#10;Eggs&#10;Sourdough Bread&#10;Apples"
-          class="w-full bg-white border-2 border-[#CAC4D0] focus:border-[#6750A4] rounded-2xl p-3.5 text-sm font-medium text-[#1D1B20] placeholder-[#79747E] focus:outline-none shadow-sm font-sans"
+          class="w-full bg-white border-2 border-[#CAC4D0] focus:border-[#6750A4] rounded-2xl p-3.5 text-base sm:text-sm font-medium text-[#1D1B20] placeholder-[#79747E] focus:outline-none shadow-sm font-sans"
         ></textarea>
         <div class="flex justify-between items-center mt-1.5 text-xs font-semibold uppercase tracking-wider text-[#49454F]">
           <span>{{ lineCount }} item(s) detected</span>

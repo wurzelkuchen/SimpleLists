@@ -86,7 +86,7 @@
             ref="editInput"
             v-model="editText"
             type="text"
-            class="w-full bg-white border-2 border-[#6750A4] rounded-lg px-2.5 py-1 text-sm font-medium text-[#1D1B20] focus:outline-none shadow-sm"
+            class="w-full bg-white border-2 border-[#6750A4] rounded-lg px-2.5 py-1 text-base sm:text-sm font-medium text-[#1D1B20] focus:outline-none shadow-sm"
             @blur="saveEdit"
             @keydown.esc="cancelEdit"
           />
@@ -155,6 +155,11 @@ function startEdit() {
     if (editInput.value) {
       editInput.value.focus();
       editInput.value.select();
+      setTimeout(() => {
+        if (editInput.value) {
+          editInput.value.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      }, 150);
     }
   });
 }

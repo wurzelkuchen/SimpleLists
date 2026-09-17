@@ -28,7 +28,7 @@
               autocorrect="off"
               autocapitalize="off"
               spellcheck="false"
-              class="w-full bg-white border-2 border-[#CAC4D0] focus:border-[#6750A4] rounded-2xl px-4 py-3 text-sm font-bold text-[#1D1B20] placeholder-[#79747E] focus:outline-none shadow-sm font-mono tracking-wide"
+              class="w-full bg-white border-2 border-[#CAC4D0] focus:border-[#6750A4] rounded-2xl px-4 py-3 text-base font-bold text-[#1D1B20] placeholder-[#79747E] focus:outline-none shadow-sm font-mono tracking-wide"
             />
             <button
               type="button"
