@@ -34,16 +34,32 @@ function waitForIceGatheringComplete(pc, maxWaitMs = 900) {
 /**
  * Rate-limited Outgoing Signal Queue
  * Throttles outbound HTTP POST signaling requests to prevent 429 Too Many Requests / CORS drops.
+ * Supports intelligent cooldown periods and non-critical message filtering when rate limited.
  */
 class OutgoingSignalQueue {
   constructor(worker) {
     this.worker = worker;
     this.queue = [];
     this.isProcessing = false;
-    this.minInterval = 350; // ms minimum spacing between HTTP requests
+    this.minInterval = 400; // ms minimum spacing between HTTP requests
+    this.rateLimitUntil = 0;
+  }
+
+  setRateLimit(untilTimestamp) {
+    this.rateLimitUntil = untilTimestamp;
+    // Purge non-critical discovery messages currently queued during a rate-limit cooldown
+    this.queue = this.queue.filter(m => m.type === 'offer' || m.type === 'answer');
   }
 
   enqueue(msg) {
+    // If currently in a rate-limit cooldown, drop non-critical discovery pings
+    if (Date.now() < this.rateLimitUntil) {
+      if (msg.type === 'ping' || msg.type === 'join' || msg.type === 'announce') {
+        syncLogger.debug('SIGNAL', `Dropping non-critical '${msg.type}' signal during rate-limit cooldown`);
+        return;
+      }
+    }
+
     // Deduplicate repeated ephemeral pings or duplicate announcements
     if (msg.type === 'ping' || msg.type === 'join' || msg.type === 'announce') {
       const idx = this.queue.findIndex(
@@ -66,6 +82,16 @@ class OutgoingSignalQueue {
     this.isProcessing = true;
 
     while (this.queue.length > 0) {
+      // If we hit a rate limit, wait until cooldown expires
+      const now = Date.now();
+      if (now < this.rateLimitUntil) {
+        const waitTime = Math.min(this.rateLimitUntil - now, 10000);
+        await new Promise(r => setTimeout(r, waitTime));
+        if (Date.now() < this.rateLimitUntil) {
+          continue;
+        }
+      }
+
       const msg = this.queue.shift();
       try {
         await this.worker(msg);
@@ -113,24 +139,42 @@ class WebRTCSyncEngine {
     this.reconnectAttempts = 0;
     this.reconnectTimer = null;
     this.heartbeatTimer = null;
+    this.discoveryTimer = null;
+    this.discoveryStep = 0;
+    this.discoverySchedule = [12000, 30000, 60000]; // Adaptive discovery backoff intervals
+    this.rateLimitUntil = 0;
     this.isExplicitlyStopped = false;
 
     // Rate-limited signal queue for HTTP posts
     this.signalQueue = new OutgoingSignalQueue((msg) => this.executeSignalPost(msg));
 
-    // Window listeners for auto reconnection
+    // Window listeners for auto reconnection & smart discovery
     if (typeof window !== 'undefined') {
       window.addEventListener('online', () => {
         syncLogger.info('SIGNAL', 'Device online detected, checking connectivity...');
-        this.handleNetworkReturn();
+        this.handleNetworkReturn('network_online');
       });
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
-          syncLogger.debug('SIGNAL', 'App resumed, checking connections...');
-          this.handleNetworkReturn();
+          syncLogger.debug('SIGNAL', 'App resumed to foreground, checking connections...');
+          this.handleNetworkReturn('foreground_resume');
+        } else {
+          // Tab backgrounded: enter passive listener mode to avoid polling & save battery
+          clearTimeout(this.discoveryTimer);
+          syncLogger.debug('SIGNAL', 'App backgrounded: entered Passive Listener Mode (0 polling)');
+          this.notifyStatus();
+        }
+      });
+      window.addEventListener('focus', () => {
+        if (this.getOpenPeerCount() === 0) {
+          this.handleNetworkReturn('window_focus');
         }
       });
     }
+  }
+
+  getOpenPeerCount() {
+    return Array.from(this.peers.values()).filter(p => p.dc && p.dc.readyState === 'open').length;
   }
 
   onStatusChange(callback) {
@@ -145,15 +189,36 @@ class WebRTCSyncEngine {
   }
 
   getStatus() {
+    const openPeerCount = this.getOpenPeerCount();
     const connectedPeers = Array.from(this.peers.entries())
       .filter(([_, p]) => p.dc && p.dc.readyState === 'open')
       .map(([id]) => id);
 
+    const now = Date.now();
+    const isRateLimited = now < this.rateLimitUntil;
+    const rateLimitRemaining = isRateLimited ? Math.ceil((this.rateLimitUntil - now) / 1000) : 0;
+
+    let syncMode = 'disconnected';
+    if (openPeerCount > 0) {
+      syncMode = 'connected';
+    } else if (isRateLimited) {
+      syncMode = 'rate_limited';
+    } else if (this.signalingState === 'connected') {
+      if (this.discoveryTimer) {
+        syncMode = 'discovering';
+      } else {
+        syncMode = 'passive_listening';
+      }
+    }
+
     return {
-      status: connectedPeers.length > 0 ? 'connected' : (this.signalingState === 'connected' ? 'connected_to_signaling' : this.status),
+      status: openPeerCount > 0 ? 'connected' : (this.signalingState === 'connected' ? 'connected_to_signaling' : this.status),
+      syncMode,
       signalingState: this.signalingState,
       signalingError: this.signalingError,
-      peerCount: connectedPeers.length,
+      isRateLimited,
+      rateLimitRemaining,
+      peerCount: openPeerCount,
       connectedPeers,
       myPeerId: this.myPeerId,
       roomId: this.roomId,
@@ -203,6 +268,7 @@ class WebRTCSyncEngine {
   disconnect() {
     this.isExplicitlyStopped = true;
     clearTimeout(this.reconnectTimer);
+    clearTimeout(this.discoveryTimer);
     clearInterval(this.heartbeatTimer);
     this.signalQueue.clear();
 
@@ -241,10 +307,89 @@ class WebRTCSyncEngine {
     syncLogger.info('SIGNAL', 'Sync engine stopped');
   }
 
-  handleNetworkReturn() {
+  /**
+   * Adaptive event-driven peer discovery:
+   * Dispatches an immediate 'join' signal and schedules a decaying sequence
+   * of retries before settling into Passive Listener Mode.
+   */
+  triggerDiscovery(force = false) {
+    clearTimeout(this.discoveryTimer);
+    this.discoveryStep = 0;
+
     if (this.isExplicitlyStopped || !this.roomId) return;
+
+    if (Date.now() < this.rateLimitUntil) {
+      syncLogger.debug('SIGNAL', 'Discovery skipped: Relay rate limit active, cooling down');
+      return;
+    }
+
+    if (this.getOpenPeerCount() > 0 && !force) {
+      syncLogger.debug('SIGNAL', 'Discovery skipped: WebRTC peers already connected');
+      return;
+    }
+
+    // If tab is in background on PC/phone, stay passive unless forced
+    if (typeof document !== 'undefined' && document.hidden && !force) {
+      syncLogger.debug('SIGNAL', 'Tab in background: maintaining Passive Listener Mode (no outgoing signal)');
+      this.notifyStatus();
+      return;
+    }
+
+    syncLogger.info('SIGNAL', 'Triggering active peer discovery announcement...');
+    this.sendSignal({
+      type: 'join',
+      roomId: this.roomId,
+      senderPeerId: this.myPeerId,
+      peerId: this.myPeerId
+    });
+
+    this.scheduleNextDiscoveryStep();
+    this.notifyStatus();
+  }
+
+  scheduleNextDiscoveryStep() {
+    clearTimeout(this.discoveryTimer);
+
+    if (this.discoveryStep >= this.discoverySchedule.length) {
+      syncLogger.info('SIGNAL', 'Peer discovery schedule completed. In Passive Listener Mode (waiting for incoming peers)');
+      this.notifyStatus();
+      return;
+    }
+
+    const delay = this.discoverySchedule[this.discoveryStep];
+    this.discoveryStep++;
+
+    this.discoveryTimer = setTimeout(() => {
+      // Only proceed if still 0 open peers and tab is visible
+      if (this.getOpenPeerCount() === 0 && (typeof document === 'undefined' || !document.hidden)) {
+        syncLogger.debug('SIGNAL', `Discovery retry step #${this.discoveryStep} (${Math.round(delay / 1000)}s backoff)...`);
+        this.sendSignal({
+          type: 'join',
+          roomId: this.roomId,
+          senderPeerId: this.myPeerId,
+          peerId: this.myPeerId
+        });
+        this.scheduleNextDiscoveryStep();
+      } else {
+        syncLogger.debug('SIGNAL', 'Discovery stopped (peer connected or tab backgrounded)');
+        this.notifyStatus();
+      }
+    }, delay);
+  }
+
+  handleNetworkReturn(reason = 'resumed') {
+    if (this.isExplicitlyStopped || !this.roomId) return;
+
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      syncLogger.info('SIGNAL', `Signaling offline on ${reason}, reconnecting...`);
       this.connectSignaling();
+    } else {
+      // If signaling is already connected but 0 peers are open, trigger active discovery
+      // because the user actively interacted with/switched to the app
+      if (this.getOpenPeerCount() === 0) {
+        syncLogger.debug('SIGNAL', `App ${reason} with 0 peers, triggering active discovery...`);
+        this.triggerDiscovery(true);
+      }
     }
   }
 
@@ -288,30 +433,19 @@ class WebRTCSyncEngine {
         syncLogger.success('SIGNAL', `Signaling relay connected (${isPublic ? 'ntfy.sh topic ' + topic : wsUrl})`);
 
         if (isPublic) {
-          // Announce presence to the public topic
-          this.sendSignal({
-            type: 'join',
-            roomId: this.roomId,
-            senderPeerId: this.myPeerId,
-            peerId: this.myPeerId
-          });
+          // Announce presence via adaptive discovery (never rapid continuous polling)
+          this.triggerDiscovery(true);
 
-          // Periodic ping every 25s (rate-limit safe)
+          // Extremely relaxed safety check: check once every 10 minutes ONLY if tab is visible and 0 peers
           clearInterval(this.heartbeatTimer);
           this.heartbeatTimer = setInterval(() => {
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-              // Only send ping if we don't already have open peers
-              const openCount = Array.from(this.peers.values()).filter(p => p.dc && p.dc.readyState === 'open').length;
-              if (openCount === 0) {
-                this.sendSignal({
-                  type: 'ping',
-                  roomId: this.roomId,
-                  senderPeerId: this.myPeerId,
-                  peerId: this.myPeerId
-                });
+              if (this.getOpenPeerCount() === 0 && (typeof document === 'undefined' || !document.hidden)) {
+                syncLogger.debug('SIGNAL', 'Passive safety interval: checking room presence...');
+                this.triggerDiscovery(false);
               }
             }
-          }, 25000);
+          }, 600000); // 10 minutes instead of 25 seconds
         } else {
           // Dedicated WebSocket Server protocol
           this.ws.send(JSON.stringify({
@@ -350,6 +484,7 @@ class WebRTCSyncEngine {
 
       this.ws.onclose = (event) => {
         clearInterval(this.heartbeatTimer);
+        clearTimeout(this.discoveryTimer);
         this.signalingState = 'disconnected';
         if (!event.wasClean) {
           this.signalingError = isPublic 
@@ -364,6 +499,7 @@ class WebRTCSyncEngine {
 
       this.ws.onerror = (e) => {
         clearInterval(this.heartbeatTimer);
+        clearTimeout(this.discoveryTimer);
         this.signalingState = 'error';
         this.signalingError = isPublic 
           ? 'Network issue reaching public relay. Retrying...' 
@@ -381,10 +517,18 @@ class WebRTCSyncEngine {
 
   scheduleReconnect() {
     if (this.isExplicitlyStopped || !this.roomId) return;
-    this.setStatus(this.peers.size > 0 ? 'connected' : 'connecting');
+    this.setStatus(this.getOpenPeerCount() > 0 ? 'connected' : 'connecting');
 
     this.reconnectAttempts++;
-    const delay = Math.min(1500 * Math.pow(1.4, this.reconnectAttempts), 12000);
+    const isBackground = typeof document !== 'undefined' && document.hidden;
+    const baseMultiplier = isBackground ? 3000 : 1800;
+    const maxDelay = isBackground ? 60000 : 30000;
+    const exponentialDelay = Math.min(baseMultiplier * Math.pow(1.35, this.reconnectAttempts), maxDelay);
+
+    // If rate limited, ensure we back off at least until cooldown ends
+    const rateLimitDelay = this.rateLimitUntil > Date.now() ? (this.rateLimitUntil - Date.now() + 2000) : 0;
+    const delay = Math.max(rateLimitDelay, exponentialDelay);
+
     syncLogger.debug('SIGNAL', `Scheduling reconnect attempt #${this.reconnectAttempts} in ${Math.round(delay)}ms`);
 
     clearTimeout(this.reconnectTimer);
@@ -412,19 +556,35 @@ class WebRTCSyncEngine {
       const res = await fetch(`https://ntfy.sh/${topic}`, {
         method: 'POST',
         body: JSON.stringify(msg),
-        headers: { 'Title': 'simplelists-signal' }
+        headers: {
+          'Title': 'simplelists-signal',
+          'Cache': 'no',
+          'X-Cache': 'no'
+        }
       });
 
-      if (!res.ok && res.status === 429) {
-        syncLogger.warn('SIGNAL', 'Relay rate limit hit, backing off 1.5s...');
-        await new Promise(r => setTimeout(r, 1500));
-        if (attempt <= 2) {
-          return this.executeSignalPost(msg, attempt + 1);
+      if (!res.ok) {
+        if (res.status === 429) {
+          const retryAfterSec = parseInt(res.headers.get('Retry-After') || '60', 10);
+          const cooldownMs = Math.max(retryAfterSec * 1000, 45000);
+          this.rateLimitUntil = Date.now() + cooldownMs;
+          this.signalQueue.setRateLimit(this.rateLimitUntil);
+          this.signalingError = `Relay rate limit hit. Cooldown for ${Math.round(cooldownMs / 1000)}s...`;
+          syncLogger.warn('SIGNAL', `Relay rate limit (HTTP 429) hit! Cooldown for ${Math.round(cooldownMs / 1000)}s`);
+          this.notifyStatus();
+          return;
+        }
+        syncLogger.warn('SIGNAL', `Signal POST returned non-OK status (${res.status})`);
+      } else {
+        // If we were in a rate limit error, clear it on successful POST
+        if (this.signalingError && this.signalingError.includes('rate limit')) {
+          this.signalingError = null;
+          this.notifyStatus();
         }
       }
     } catch (err) {
       syncLogger.warn('SIGNAL', `Signal post issue: ${err.message}`);
-      if (attempt <= 2 && msg.type !== 'ping') {
+      if (attempt <= 2 && msg.type !== 'ping' && msg.type !== 'join') {
         await new Promise(r => setTimeout(r, 800 * attempt));
         return this.executeSignalPost(msg, attempt + 1);
       }
@@ -721,6 +881,7 @@ class WebRTCSyncEngine {
         peer.state = 'connected';
         peer.negotiatingUntil = 0;
       }
+      clearTimeout(this.discoveryTimer);
       this.notifyStatus();
       // On DataChannel open, trigger initial state synchronization request
       this.notifyMessage({ type: 'channel_opened' }, peerId);
@@ -807,13 +968,8 @@ class WebRTCSyncEngine {
       syncLogger.info('SIGNAL', 'Signaling offline, attempting immediate reconnection...');
       this.connectSignaling();
     } else {
-      // 2. Announce presence to discover new peers
-      this.sendSignal({
-        type: 'join',
-        roomId: this.roomId,
-        senderPeerId: this.myPeerId,
-        peerId: this.myPeerId
-      });
+      // 2. Announce presence & trigger adaptive discovery sequence
+      this.triggerDiscovery(true);
     }
 
     // 3. Trigger peer message sync on all open data channels

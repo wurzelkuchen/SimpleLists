@@ -38,7 +38,10 @@
               class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider shadow-sm flex items-center space-x-1.5"
               :class="[
                 store.syncState.peerCount > 0 ? 'bg-[#E8DEF8] text-[#21005D] border border-[#CAC4D0]' :
-                store.syncState.signalingState === 'connected' ? 'bg-amber-100 text-amber-900 border border-amber-300' :
+                store.syncState.isRateLimited ? 'bg-rose-100 text-rose-900 border border-rose-300' :
+                store.syncState.syncMode === 'discovering' ? 'bg-amber-100 text-amber-900 border border-amber-300' :
+                store.syncState.syncMode === 'passive_listening' ? 'bg-indigo-50 text-indigo-900 border border-indigo-200' :
+                store.syncState.signalingState === 'connected' ? 'bg-emerald-50 text-emerald-900 border border-emerald-200' :
                 'bg-red-50 text-red-800 border border-red-200'
               ]"
             >
@@ -46,13 +49,25 @@
                 class="w-2 h-2 rounded-full"
                 :class="[
                   store.syncState.peerCount > 0 ? 'bg-emerald-600 animate-pulse' :
-                  store.syncState.signalingState === 'connected' ? 'bg-amber-500' :
+                  store.syncState.isRateLimited ? 'bg-rose-500 animate-pulse' :
+                  store.syncState.syncMode === 'discovering' ? 'bg-amber-500 animate-ping' :
+                  store.syncState.syncMode === 'passive_listening' ? 'bg-indigo-500' :
+                  store.syncState.signalingState === 'connected' ? 'bg-emerald-500' :
                   'bg-red-500'
                 ]"
               ></span>
               <span>
                 <template v-if="store.syncState.peerCount > 0">
                   {{ store.syncState.peerCount }} {{ store.syncState.peerCount === 1 ? 'Peer Connected' : 'Peers Connected' }}
+                </template>
+                <template v-else-if="store.syncState.isRateLimited">
+                  Rate Limited ({{ store.syncState.rateLimitRemaining }}s)
+                </template>
+                <template v-else-if="store.syncState.syncMode === 'discovering'">
+                  Discovering Peers...
+                </template>
+                <template v-else-if="store.syncState.syncMode === 'passive_listening'">
+                  Passive Listener (Ready)
                 </template>
                 <template v-else-if="store.syncState.signalingState === 'connected'">
                   Signaling Ready (0 peers)
@@ -100,8 +115,21 @@
             </div>
           </div>
 
+          <!-- Rate Limit Cooldown Notice Banner -->
+          <div v-if="store.syncState.isRateLimited" class="bg-rose-50 border border-rose-200 rounded-xl p-3 text-[11px] text-rose-900 space-y-1">
+            <div class="font-bold flex items-center space-x-1.5">
+              <svg class="w-4 h-4 text-rose-700 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span>Relay Rate Limit Cooldown</span>
+            </div>
+            <p class="text-rose-800 leading-normal">
+              Public relay rate limit was reached. Outgoing discovery pings are temporarily paused to respect server limits. Resuming normal sync in <strong>{{ store.syncState.rateLimitRemaining }}s</strong>. Incoming peer connections are still received in real-time.
+            </p>
+          </div>
+
           <!-- Signaling Connection Diagnostic Banner -->
-          <div v-if="store.syncState.signalingError || store.syncState.signalingState === 'error'" class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-900 space-y-1">
+          <div v-else-if="store.syncState.signalingError || store.syncState.signalingState === 'error'" class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-900 space-y-1">
             <div class="font-bold flex items-center space-x-1.5">
               <svg class="w-4 h-4 text-amber-700 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -260,6 +288,19 @@
               >
                 Emulator (10.0.2.2:8080)
               </button>
+            </div>
+
+            <!-- Bridge & Self-Host Explanation -->
+            <div class="mt-2 p-2.5 bg-[#F3F0F7] rounded-xl border border-[#CAC4D0]/60 space-y-1 text-[11px] text-[#49454F]">
+              <div class="font-bold text-[#1D1B20] flex items-center space-x-1">
+                <span>💡 PC Always-On Sync Bridge</span>
+              </div>
+              <p class="leading-relaxed">
+                Keeping a browser tab open on your PC acts as an asynchronous bridge. In <em>Passive Listener Mode</em>, the tab holds an open WebSocket subscription with <strong>zero polling requests</strong> when idle, completely eliminating server rate-limiting and battery drain.
+              </p>
+              <p class="text-[10px] text-[#79747E] leading-normal">
+                Want 100% private home sync without external servers? Run <code>signaling-server/</code> on your PC (port 8080) and enter <code>ws://&lt;PC-LAN-IP&gt;:8080</code> on your phones!
+              </p>
             </div>
           </div>
         </div>

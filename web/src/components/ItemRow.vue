@@ -24,8 +24,9 @@
     <!-- Main item card surface with touch swipe -->
     <div
       ref="cardSurface"
-      class="relative flex items-center px-4 py-3.5 transition-transform duration-75 touch-pan-y"
+      class="relative flex px-4 py-3.5 transition-transform duration-75 touch-pan-y"
       :class="[
+        isMultiline ? 'items-start' : 'items-center',
         item.status === 'deleted' ? 'bg-red-50/60' : 
         item.status === 'completed' ? 'bg-[#F3F0F7]' : 
         'bg-white'
@@ -37,7 +38,11 @@
       @touchcancel="handleTouchEnd"
     >
       <!-- Custom sort mode: Up/Down arrow buttons -->
-      <div v-if="isCustomSort && item.status !== 'deleted'" class="flex flex-col mr-2 space-y-0.5 shrink-0">
+      <div 
+        v-if="isCustomSort && item.status !== 'deleted'" 
+        class="flex flex-col mr-2 space-y-0.5 shrink-0"
+        :class="{ 'mt-0.5': isMultiline }"
+      >
         <button
           @click.stop="$emit('move', 'up')"
           class="p-1 text-[#49454F] hover:text-[#6750A4] active:scale-95 transition-colors"
@@ -65,6 +70,7 @@
         @click.stop="toggleStatus"
         class="w-6 h-6 rounded-lg mr-3.5 flex items-center justify-center border-2 transition-all shrink-0 active:scale-90"
         :class="[
+          isMultiline ? 'mt-0.5' : '',
           item.status === 'completed' ? 'bg-[#6750A4] border-[#6750A4] text-white shadow-sm' :
           item.status === 'deleted' ? 'bg-red-600 border-red-600 text-white' :
           'border-[#6750A4] bg-white hover:bg-[#E8DEF8]/40 text-transparent'
@@ -81,32 +87,97 @@
 
       <!-- Item text / inline edit -->
       <div class="flex-1 min-w-0 pr-2">
-        <form v-if="isEditing" @submit.prevent="saveEdit" class="flex items-center space-x-2">
-          <input
-            ref="editInput"
-            v-model="editText"
-            type="text"
-            class="w-full bg-white border-2 border-[#6750A4] rounded-lg px-2.5 py-1 text-base sm:text-sm font-medium text-[#1D1B20] focus:outline-none shadow-sm"
-            @blur="saveEdit"
-            @keydown.esc="cancelEdit"
-          />
-        </form>
+        <!-- Edit Mode -->
+        <div v-if="isEditing" class="w-full space-y-2 py-0.5">
+          <div>
+            <label class="block text-[10px] font-bold uppercase tracking-wider text-[#49454F] mb-1">
+              Title
+            </label>
+            <input
+              ref="editInput"
+              v-model="editText"
+              type="text"
+              placeholder="Item title..."
+              class="w-full bg-white border-2 border-[#6750A4] rounded-xl px-3 py-1.5 text-base sm:text-sm font-medium text-[#1D1B20] focus:outline-none shadow-sm transition-all"
+              @keydown.enter.prevent="saveEdit"
+              @keydown.esc="cancelEdit"
+            />
+          </div>
+
+          <div>
+            <label class="block text-[10px] font-bold uppercase tracking-wider text-[#49454F] mb-1">
+              Details / Description (Optional)
+            </label>
+            <textarea
+              ref="detailsInput"
+              v-model="editDetails"
+              rows="2"
+              placeholder="Add a short description or notes..."
+              class="w-full bg-white border border-[#CAC4D0] focus:border-[#6750A4] rounded-xl p-2.5 text-xs sm:text-sm font-normal text-[#1D1B20] placeholder-[#79747E] focus:outline-none shadow-sm transition-all resize-y"
+              @keydown.enter.ctrl.prevent="saveEdit"
+              @keydown.enter.meta.prevent="saveEdit"
+              @keydown.esc="cancelEdit"
+            ></textarea>
+          </div>
+
+          <div class="flex items-center justify-end space-x-2 pt-1">
+            <button
+              type="button"
+              @click.stop="cancelEdit"
+              class="px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-[#49454F] hover:text-[#1D1B20] hover:bg-[#F3F0F7] rounded-xl transition-colors active:scale-95"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              :disabled="!editText.trim()"
+              @click.stop="saveEdit"
+              class="px-4 py-1.5 bg-[#6750A4] hover:bg-[#533f86] active:scale-95 disabled:opacity-40 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all shadow-sm flex items-center space-x-1.5"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+              </svg>
+              <span>Save</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- View Mode -->
         <div
           v-else
           @click="startEdit"
-          class="text-sm sm:text-base font-medium select-text cursor-pointer break-words leading-relaxed transition-all"
-          :class="[
-            item.status === 'completed' ? 'line-through text-[#79747E]' :
-            item.status === 'deleted' ? 'line-through text-red-700/70 italic' :
-            'text-[#1D1B20] hover:text-[#6750A4]'
-          ]"
+          class="cursor-pointer select-text group/item transition-all"
         >
-          {{ item.text }}
+          <div
+            class="text-sm sm:text-base font-medium break-words leading-relaxed transition-all"
+            :class="[
+              item.status === 'completed' ? 'line-through text-[#79747E]' :
+              item.status === 'deleted' ? 'line-through text-red-700/70 italic' :
+              'text-[#1D1B20] group-hover/item:text-[#6750A4]'
+            ]"
+          >
+            {{ item.text }}
+          </div>
+          <!-- Optional details section: if nothing is there don't show it -->
+          <div
+            v-if="hasDetails"
+            class="text-xs sm:text-sm mt-1 whitespace-pre-line break-words leading-relaxed transition-all"
+            :class="[
+              item.status === 'completed' ? 'line-through text-[#79747E]/70' :
+              item.status === 'deleted' ? 'line-through text-red-700/50 italic' :
+              'text-[#49454F]'
+            ]"
+          >
+            {{ item.details }}
+          </div>
         </div>
       </div>
 
       <!-- Quick status badge or delete tag -->
-      <div class="flex items-center space-x-1 shrink-0">
+      <div 
+        class="flex items-center space-x-1 shrink-0"
+        :class="{ 'mt-0.5': isMultiline }"
+      >
         <span 
           v-if="item.status === 'deleted'" 
           class="text-[10px] uppercase font-bold tracking-wider text-red-700 bg-red-100 border border-red-300 px-2 py-0.5 rounded-full"
@@ -114,9 +185,10 @@
           Deleted
         </span>
         <button
+          v-if="!isEditing"
           @click.stop="startEdit"
           class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-[#49454F] hover:text-[#1D1B20] hover:bg-[#E8DEF8]/50 transition-all"
-          title="Edit item text"
+          title="Edit item"
         >
           <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -128,7 +200,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 
 const props = defineProps({
   item: {
@@ -141,15 +213,22 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['update-status', 'update-text', 'move']);
+const emit = defineEmits(['update-status', 'update-text', 'update-item', 'move']);
+
+const hasDetails = computed(() => !!(props.item.details && props.item.details.trim()));
+const isMultiline = computed(() => isEditing.value || hasDetails.value);
 
 // Inline edit state
 const isEditing = ref(false);
 const editText = ref('');
+const editDetails = ref('');
 const editInput = ref(null);
+const detailsInput = ref(null);
+const cardSurface = ref(null);
 
 function startEdit() {
   editText.value = props.item.text;
+  editDetails.value = props.item.details || '';
   isEditing.value = true;
   nextTick(() => {
     if (editInput.value) {
@@ -166,16 +245,45 @@ function startEdit() {
 
 function saveEdit() {
   if (!isEditing.value) return;
-  const trimmed = editText.value.trim();
-  if (trimmed && trimmed !== props.item.text) {
-    emit('update-text', trimmed);
+  const trimmedText = editText.value.trim();
+  const trimmedDetails = editDetails.value.trim();
+
+  // If title is empty, cancel rather than saving a blank item
+  if (!trimmedText) {
+    cancelEdit();
+    return;
+  }
+
+  const textChanged = trimmedText !== props.item.text;
+  const detailsChanged = trimmedDetails !== (props.item.details || '');
+
+  if (textChanged || detailsChanged) {
+    emit('update-item', { text: trimmedText, details: trimmedDetails });
+    emit('update-text', trimmedText);
   }
   isEditing.value = false;
 }
 
 function cancelEdit() {
   isEditing.value = false;
+  editText.value = props.item.text;
+  editDetails.value = props.item.details || '';
 }
+
+function handleClickOutside(e) {
+  if (!isEditing.value) return;
+  if (cardSurface.value && !cardSurface.value.contains(e.target)) {
+    saveEdit();
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', handleClickOutside);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', handleClickOutside);
+});
 
 function toggleStatus() {
   if (props.item.status === 'open') {

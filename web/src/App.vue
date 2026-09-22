@@ -37,6 +37,7 @@
             :is-custom-sort="store.sortMode === 'custom'"
             @update-status="(status) => handleUpdateStatus(item.id, status)"
             @update-text="(text) => handleUpdateText(item.id, text)"
+            @update-item="(payload) => handleUpdateItem(item.id, payload)"
             @move="(dir) => handleMoveItem(item.id, dir)"
           />
         </div>
@@ -173,6 +174,12 @@ function handleUpdateStatus(itemId, newStatus) {
 function handleUpdateText(itemId, newText) {
   if (store.activeList) {
     store.updateItemText(store.activeList.id, itemId, newText);
+  }
+}
+
+function handleUpdateItem(itemId, { text, details }) {
+  if (store.activeList) {
+    store.updateItem(store.activeList.id, itemId, { text, details });
   }
 }
 

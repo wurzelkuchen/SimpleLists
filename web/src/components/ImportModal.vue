@@ -27,17 +27,17 @@
       <!-- Instructions & Textarea -->
       <div class="mb-4">
         <p class="text-xs font-medium text-[#49454F] mb-2">
-          Paste or type items below. Each non-empty line becomes a new item in open status.
+          Paste or type items below. Each line becomes a new item. Bullets, numbering, and whitespace are cleaned automatically.
         </p>
         <textarea
           v-model="importText"
           rows="8"
-          placeholder="Milk&#10;Eggs&#10;Sourdough Bread&#10;Apples"
+          placeholder="- Milk&#10;- Eggs&#10;• Sourdough Bread&#10;1. Apples"
           class="w-full bg-white border-2 border-[#CAC4D0] focus:border-[#6750A4] rounded-2xl p-3.5 text-base sm:text-sm font-medium text-[#1D1B20] placeholder-[#79747E] focus:outline-none shadow-sm font-sans"
         ></textarea>
         <div class="flex justify-between items-center mt-1.5 text-xs font-semibold uppercase tracking-wider text-[#49454F]">
           <span>{{ lineCount }} item(s) detected</span>
-          <span>Empty lines ignored</span>
+          <span>Auto-cleaned</span>
         </div>
       </div>
 
@@ -66,16 +66,13 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { useListStore } from '../stores/listStore.js';
+import { parseImportLines } from '../services/importUtils.js';
 
 const store = useListStore();
 const importText = ref('');
 
 const lineCount = computed(() => {
-  if (!importText.value) return 0;
-  return importText.value
-    .split('\n')
-    .map(l => l.trim())
-    .filter(l => l.length > 0).length;
+  return parseImportLines(importText.value).length;
 });
 
 function handleImport() {

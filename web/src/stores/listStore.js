@@ -11,6 +11,7 @@ import {
 import { syncEngine } from '../services/webrtc.js';
 import { syncLogger } from '../services/logger.js';
 import { CONFIG } from '../config.js';
+import { parseImportLines } from '../services/importUtils.js';
 
 export const useListStore = defineStore('lists', {
   state: () => ({
@@ -71,7 +72,10 @@ export const useListStore = defineStore('lists', {
           return false;
         }
         if (state.searchQuery.trim()) {
-          return item.text.toLowerCase().includes(state.searchQuery.trim().toLowerCase());
+          const q = state.searchQuery.trim().toLowerCase();
+          const matchText = item.text && item.text.toLowerCase().includes(q);
+          const matchDetails = item.details && item.details.toLowerCase().includes(q);
+          return matchText || matchDetails;
         }
         return true;
       });
@@ -178,6 +182,7 @@ export const useListStore = defineStore('lists', {
           {
             id: generateUUID(),
             text: 'Swipe right to complete this item ➡️',
+            details: '',
             status: 'open',
             position: 1,
             createdAt: now,
@@ -186,6 +191,7 @@ export const useListStore = defineStore('lists', {
           {
             id: generateUUID(),
             text: 'Swipe right again to soft-delete 🗑️',
+            details: '',
             status: 'open',
             position: 2,
             createdAt: now + 1,
@@ -194,6 +200,7 @@ export const useListStore = defineStore('lists', {
           {
             id: generateUUID(),
             text: 'Swipe left to revert status ⬅️',
+            details: '',
             status: 'completed',
             position: 3,
             createdAt: now + 2,
@@ -202,6 +209,7 @@ export const useListStore = defineStore('lists', {
           {
             id: generateUUID(),
             text: 'Sync across devices with the same shared phrase ⚡',
+            details: '',
             status: 'open',
             position: 4,
             createdAt: now + 3,
@@ -348,6 +356,7 @@ export const useListStore = defineStore('lists', {
       const copiedItems = activeItems.map((item, idx) => ({
         id: generateUUID(),
         text: item.text,
+        details: item.details || '',
         status: 'open',
         position: idx + 1,
         createdAt: now + idx,
@@ -422,6 +431,7 @@ export const useListStore = defineStore('lists', {
       const newItem = {
         id: generateUUID(),
         text: trimmed,
+        details: '',
         status: 'open',
         position: maxPosition + 1,
         createdAt: now,
@@ -443,10 +453,7 @@ export const useListStore = defineStore('lists', {
 
     async importItems(listId, textBlob) {
       if (!textBlob) return;
-      const lines = textBlob
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line.length > 0);
+      const lines = parseImportLines(textBlob);
 
       if (lines.length === 0) return;
 
@@ -466,6 +473,7 @@ export const useListStore = defineStore('lists', {
         const item = {
           id: generateUUID(),
           text: line,
+          details: '',
           status: 'open',
           position: currentPosition,
           createdAt: now + idx,
@@ -489,9 +497,9 @@ export const useListStore = defineStore('lists', {
       this.isImportModalOpen = false;
     },
 
-    async updateItemText(listId, itemId, newText) {
-      const trimmed = (newText || '').trim();
-      if (!trimmed) return;
+    async updateItem(listId, itemId, { text, details }) {
+      const trimmedText = (text || '').trim();
+      if (!trimmedText) return;
 
       const list = this.lists.find(l => l.id === listId);
       if (!list || !Array.isArray(list.items)) return;
@@ -499,7 +507,13 @@ export const useListStore = defineStore('lists', {
       const item = list.items.find(i => i.id === itemId);
       if (!item) return;
 
-      item.text = trimmed;
+      const trimmedDetails = details !== undefined ? (details || '').trim() : (item.details || '');
+      if (item.text === trimmedText && (item.details || '') === trimmedDetails) {
+        return;
+      }
+
+      item.text = trimmedText;
+      item.details = trimmedDetails;
       item.updatedAt = Date.now();
       list.updatedAt = item.updatedAt;
 
@@ -509,6 +523,10 @@ export const useListStore = defineStore('lists', {
         listId: list.id,
         item
       });
+    },
+
+    async updateItemText(listId, itemId, newText, newDetails = undefined) {
+      return this.updateItem(listId, itemId, { text: newText, details: newDetails });
     },
 
     async updateItemStatus(listId, itemId, newStatus) {
@@ -601,11 +619,16 @@ export const useListStore = defineStore('lists', {
 
     broadcastMutation(mutation) {
       syncLogger.debug('SYNC', `Broadcasting mutation ${mutation.type}`);
-      syncEngine.broadcast({
+      const sentCount = syncEngine.broadcast({
         type: 'mutation',
         mutation,
         sentAt: Date.now()
       });
+      // If no peers are currently connected, trigger discovery
+      // so any active listener (e.g. always-on PC browser tab) will connect and sync the update!
+      if (sentCount === 0) {
+        syncEngine.triggerDiscovery();
+      }
     },
 
     handlePeerMessage(msg, fromPeerId) {
@@ -737,6 +760,7 @@ export const useListStore = defineStore('lists', {
           } else {
             if (this.isRemoteWinning(remoteItem.updatedAt, remoteItem.id, localItem.updatedAt, localItem.id)) {
               localItem.text = remoteItem.text;
+              localItem.details = remoteItem.details || '';
               localItem.status = remoteItem.status;
               localItem.position = remoteItem.position;
               localItem.updatedAt = remoteItem.updatedAt;
@@ -778,6 +802,7 @@ export const useListStore = defineStore('lists', {
         } else {
           if (this.isRemoteWinning(remoteItem.updatedAt, remoteItem.id, localItem.updatedAt, localItem.id)) {
             localItem.text = remoteItem.text;
+            localItem.details = remoteItem.details || '';
             localItem.status = remoteItem.status;
             localItem.position = remoteItem.position;
             localItem.updatedAt = remoteItem.updatedAt;
