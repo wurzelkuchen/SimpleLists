@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.lifecycleScope
 import androidx.webkit.WebViewAssetLoader
 import com.example.ui.theme.MyApplicationTheme
 
@@ -37,7 +38,7 @@ import com.example.ui.theme.MyApplicationTheme
  * 
  * Responsibilities:
  * - Creates and configures a secure WebView sandbox
- * - Loads the offline bundled Vue 3 PWA via WebViewAssetLoader
+ * - Loads the offline bundled Vue 3 PWA via WebViewAssetLoader (with dynamic OTA support)
  * - Handles Android lifecycle and back navigation
  * - Prevents arbitrary navigation outside the app
  * - Zero application/business logic implemented here
@@ -45,6 +46,7 @@ import com.example.ui.theme.MyApplicationTheme
 class MainActivity : ComponentActivity() {
 
   private var webView: WebView? = null
+  private val bundleManager by lazy { WebBundleManager(applicationContext) }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -87,8 +89,18 @@ class MainActivity : ComponentActivity() {
             .imePadding()
         ) {
           SimpleListsWebView(
+            bundleManager = bundleManager,
             onWebViewCreated = { wv ->
               webView = wv
+              // Check for OTA web updates in background and notify the WebView if ready
+              bundleManager.checkForUpdate(lifecycleScope) { newVersion ->
+                wv.post {
+                  wv.evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('web-update-ready', { detail: { version: $newVersion } }));",
+                    null
+                  )
+                }
+              }
             }
           )
         }
@@ -99,6 +111,15 @@ class MainActivity : ComponentActivity() {
   override fun onResume() {
     super.onResume()
     webView?.onResume()
+    // Periodic check on resume (throttled by bundleManager to at most once per 5 minutes)
+    bundleManager.checkForUpdate(lifecycleScope) { newVersion ->
+      webView?.post {
+        webView?.evaluateJavascript(
+          "window.dispatchEvent(new CustomEvent('web-update-ready', { detail: { version: $newVersion } }));",
+          null
+        )
+      }
+    }
   }
 
   override fun onPause() {
@@ -120,15 +141,18 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SimpleListsWebView(
   modifier: Modifier = Modifier,
+  bundleManager: WebBundleManager,
   onWebViewCreated: (WebView) -> Unit
 ) {
   val context = LocalContext.current
 
-  // Secure local asset loader mapping https://appassets.androidplatform.net/assets/ to assets/
+  // Dynamic asset loader mapping https://appassets.androidplatform.net/assets/
+  // Prioritizes dynamically downloaded bundles in internal storage with APK asset fallback
   val assetLoader = remember {
+    val dynamicHandler = DynamicWebPathHandler(context, bundleManager.activeWebDir)
     WebViewAssetLoader.Builder()
       .setDomain("appassets.androidplatform.net")
-      .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
+      .addPathHandler("/assets/", dynamicHandler)
       .build()
   }
 
@@ -148,6 +172,9 @@ fun SimpleListsWebView(
           databaseEnabled = true
           mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
           
+          // Identify app to the frontend for PWA / Service Worker handling
+          userAgentString = "$userAgentString SimpleListsApp"
+
           // Disable unnecessary file and content access capabilities
           allowFileAccess = false
           allowContentAccess = false

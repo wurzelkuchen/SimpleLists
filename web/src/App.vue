@@ -94,6 +94,24 @@
       @confirm="handleConfirmAction"
       @cancel="confirmDialog.isOpen = false"
     />
+
+    <!-- Dynamic OTA Update Banner -->
+    <transition name="fade">
+      <div
+        v-if="updateAvailable"
+        class="fixed bottom-20 left-4 right-4 z-40 max-w-sm mx-auto bg-[#21005D] text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center justify-between border border-[#6750A4]"
+      >
+        <div class="flex items-center space-x-2 text-xs font-bold tracking-wide">
+          <span>✨ New update installed!</span>
+        </div>
+        <button
+          @click="applyUpdate"
+          class="px-3.5 py-1.5 bg-white text-[#21005D] rounded-xl text-xs font-extrabold uppercase tracking-wider hover:bg-[#E8DEF8] transition-colors shadow-sm"
+        >
+          Reload
+        </button>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -113,6 +131,11 @@ import ConfirmModal from './components/ConfirmModal.vue';
 const store = useListStore();
 
 const isSortSelectorOpen = ref(false);
+const updateAvailable = ref(false);
+
+function applyUpdate() {
+  window.location.reload();
+}
 
 const confirmDialog = ref({
   isOpen: false,
@@ -191,6 +214,12 @@ function handleMoveItem(itemId, direction) {
 
 onMounted(() => {
   store.initApp();
+
+  // Listen for OTA update notifications from Android
+  window.addEventListener('web-update-ready', (e) => {
+    console.log('Web update ready:', e.detail);
+    updateAvailable.value = true;
+  });
 
   // Listen for back press dispatched from Android
   window.addEventListener('android-back', () => {

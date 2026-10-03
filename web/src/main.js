@@ -44,8 +44,20 @@ const pinia = createPinia();
 app.use(pinia);
 app.mount('#app');
 
-// Register Service Worker for offline PWA caching if supported
-if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
+// Register Service Worker for offline PWA caching if supported in standard browsers.
+// Inside the native Android WebView, assets are already cached/served locally via flash storage.
+const isNativeApp = navigator.userAgent.includes('SimpleListsApp');
+if (isNativeApp && 'serviceWorker' in navigator) {
+  // If previously registered in WebView, unregister to avoid stale cache conflicting with native dynamic disk bundle
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    for (const registration of registrations) {
+      registration.unregister();
+    }
+  });
+  if ('caches' in window) {
+    caches.keys().then((keys) => keys.forEach((key) => caches.delete(key)));
+  }
+} else if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js')
       .then((reg) => {

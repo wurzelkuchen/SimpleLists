@@ -39,6 +39,14 @@ jobs:
 
       - name: Bundle Web Assets into Android
         run: |
+          cat <<EOF > web/dist/version.json
+          {
+            "version": ${{ github.run_number }},
+            "gitSha": "${{ github.sha }}",
+            "builtAt": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+            "zipUrl": "https://wurzelkuchen.github.io/SimpleLists/web-dist.zip"
+          }
+          EOF
           mkdir -p app/src/main/assets/web
           cp -r web/dist/* app/src/main/assets/web/
 
