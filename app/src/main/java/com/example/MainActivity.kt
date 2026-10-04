@@ -1,10 +1,15 @@
 package com.example
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.ViewGroup
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -15,6 +20,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,7 +29,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -32,6 +37,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
 import androidx.webkit.WebViewAssetLoader
 import com.example.ui.theme.MyApplicationTheme
+import org.json.JSONObject
 
 /**
  * Minimal native Android WebView wrapper for Simple Lists.
@@ -39,18 +45,85 @@ import com.example.ui.theme.MyApplicationTheme
  * Responsibilities:
  * - Creates and configures a secure WebView sandbox
  * - Loads the offline bundled Vue 3 PWA via WebViewAssetLoader (with dynamic OTA support)
- * - Handles Android lifecycle and back navigation
+ * - Exposes native bridge APIs for notifications, deadline reminders, and file attachments
+ * - Handles Android file chooser requests (<input type="file">)
+ * - Handles Android lifecycle, back navigation, and notification intents
  * - Prevents arbitrary navigation outside the app
- * - Zero application/business logic implemented here
  */
 class MainActivity : ComponentActivity() {
 
   private var webView: WebView? = null
   private val bundleManager by lazy { WebBundleManager(applicationContext) }
+  private var pendingNotificationIntent: Intent? = null
+
+  // File Chooser state for <input type="file"> support in WebView
+  var filePathCallback: ValueCallback<Array<Uri>>? = null
+
+  val fileChooserLauncher = registerForActivityResult(
+    ActivityResultContracts.StartActivityForResult()
+  ) { result ->
+    val cb = filePathCallback
+    filePathCallback = null
+    if (cb == null) return@registerForActivityResult
+
+    if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+      val data = result.data
+      val clipData = data?.clipData
+      val uris = when {
+        clipData != null -> {
+          (0 until clipData.itemCount).map { clipData.getItemAt(it).uri }.toTypedArray()
+        }
+        data?.data != null -> arrayOf(data.data!!)
+        else -> null
+      }
+      cb.onReceiveValue(uris)
+    } else {
+      cb.onReceiveValue(null)
+    }
+  }
+
+  // Runtime permissions launcher for notifications & media
+  val permissionLauncher = registerForActivityResult(
+    ActivityResultContracts.RequestMultiplePermissions()
+  ) { results ->
+    Log.d("MainActivity", "Permissions result: $results")
+    val wv = webView ?: return@registerForActivityResult
+    wv.post {
+      val json = JSONObject()
+      results.forEach { (perm, granted) -> json.put(perm, granted) }
+      wv.evaluateJavascript(
+        "window.dispatchEvent(new CustomEvent('permissions-updated', { detail: $json }));",
+        null
+      )
+    }
+  }
+
+  fun requestNotificationPermission() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+    }
+  }
+
+  fun requestMediaPermission() {
+    val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      arrayOf(
+        Manifest.permission.READ_MEDIA_IMAGES,
+        Manifest.permission.READ_MEDIA_VIDEO,
+        Manifest.permission.READ_MEDIA_AUDIO
+      )
+    } else {
+      arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+    permissionLauncher.launch(permissions)
+  }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
+
+    // Initialize notification channels
+    NotificationHelper.createNotificationChannel(applicationContext)
+    pendingNotificationIntent = intent
 
     // Handle Android system back button
     onBackPressedDispatcher.addCallback(
@@ -89,6 +162,7 @@ class MainActivity : ComponentActivity() {
             .imePadding()
         ) {
           SimpleListsWebView(
+            activity = this@MainActivity,
             bundleManager = bundleManager,
             onWebViewCreated = { wv ->
               webView = wv
@@ -101,10 +175,35 @@ class MainActivity : ComponentActivity() {
                   )
                 }
               }
+
+              // Dispatch any pending notification click from cold start
+              pendingNotificationIntent?.let {
+                handleNotificationIntent(it)
+                pendingNotificationIntent = null
+              }
             }
           )
         }
       }
+    }
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handleNotificationIntent(intent)
+  }
+
+  private fun handleNotificationIntent(intent: Intent?) {
+    val payload = intent?.getStringExtra("notification_payload") ?: return
+    val id = intent.getIntExtra("notification_id", 0)
+    val wv = webView ?: return
+    wv.post {
+      val escaped = JSONObject.quote(payload)
+      wv.evaluateJavascript(
+        "window.dispatchEvent(new CustomEvent('notification-clicked', { detail: { id: $id, payload: $escaped } }));",
+        null
+      )
     }
   }
 
@@ -141,6 +240,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun SimpleListsWebView(
   modifier: Modifier = Modifier,
+  activity: MainActivity,
   bundleManager: WebBundleManager,
   onWebViewCreated: (WebView) -> Unit
 ) {
@@ -175,15 +275,19 @@ fun SimpleListsWebView(
           // Identify app to the frontend for PWA / Service Worker handling
           userAgentString = "$userAgentString SimpleListsApp"
 
-          // Disable unnecessary file and content access capabilities
+          // Allow content access for file picking and attachments
           allowFileAccess = false
-          allowContentAccess = false
+          allowContentAccess = true
           
           // Performance & caching
           cacheMode = WebSettings.LOAD_DEFAULT
           setSupportMultipleWindows(false)
           mediaPlaybackRequiresUserGesture = false
         }
+
+        // Bridge native APIs for notifications, reminders, file access, and attachments
+        addJavascriptInterface(AndroidBridge(activity, this), "AndroidBridge")
+        addJavascriptInterface(AndroidBridge(activity, this), "Android")
 
         webChromeClient = object : WebChromeClient() {
           override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
@@ -192,6 +296,29 @@ fun SimpleListsWebView(
               "${consoleMessage?.message()} -- From line ${consoleMessage?.lineNumber()} of ${consoleMessage?.sourceId()}"
             )
             return true
+          }
+
+          override fun onShowFileChooser(
+            webView: WebView?,
+            filePathCallback: ValueCallback<Array<Uri>>?,
+            fileChooserParams: FileChooserParams?
+          ): Boolean {
+            activity.filePathCallback?.onReceiveValue(null)
+            activity.filePathCallback = filePathCallback
+
+            return try {
+              val intent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                type = "*/*"
+                addCategory(Intent.CATEGORY_OPENABLE)
+              }
+              activity.fileChooserLauncher.launch(intent)
+              true
+            } catch (e: Exception) {
+              android.util.Log.e("SimpleListsWebView", "Failed to launch file chooser", e)
+              activity.filePathCallback?.onReceiveValue(null)
+              activity.filePathCallback = null
+              false
+            }
           }
         }
 
