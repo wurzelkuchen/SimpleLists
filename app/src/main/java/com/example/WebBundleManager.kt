@@ -52,25 +52,37 @@ class WebBundleManager(context: Context) {
     private val prefs: SharedPreferences =
         appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    var currentVersion: Int
-        get() = prefs.getInt(KEY_CURRENT_VERSION, 0)
-        set(value) = prefs.edit().putInt(KEY_CURRENT_VERSION, value).apply()
+    var currentVersion: Long
+        get() {
+            return try {
+                prefs.getLong(KEY_CURRENT_VERSION, 0L)
+            } catch (e: ClassCastException) {
+                // Recover and migrate if previously stored as Int
+                val oldInt = prefs.getInt(KEY_CURRENT_VERSION, 0).toLong()
+                prefs.edit().putLong(KEY_CURRENT_VERSION, oldInt).apply()
+                oldInt
+            }
+        }
+        set(value) = prefs.edit().putLong(KEY_CURRENT_VERSION, value).apply()
 
     init {
-        // Initialize baseline version if not previously set
-        if (currentVersion == 0) {
-            currentVersion = readBundledBaselineVersion()
+        // Automatically sync with APK-bundled baseline if APK was upgraded
+        val baseline = readBundledBaselineVersion()
+        if (currentVersion < baseline) {
+            Log.i(TAG, "Bundled baseline v$baseline is newer than stored v$currentVersion. Resetting to bundled assets.")
+            currentVersion = baseline
+            deleteDirectory(activeWebDir)
         }
     }
 
-    private fun readBundledBaselineVersion(): Int {
+    private fun readBundledBaselineVersion(): Long {
         return try {
             appContext.assets.open("web/version.json").use { stream ->
                 val jsonStr = stream.bufferedReader().use { it.readText() }
-                JSONObject(jsonStr).optInt("version", 1)
+                JSONObject(jsonStr).optLong("version", 1L)
             }
         } catch (e: Exception) {
-            1
+            1L
         }
     }
 
@@ -83,7 +95,7 @@ class WebBundleManager(context: Context) {
     fun checkForUpdate(
         scope: CoroutineScope,
         force: Boolean = false,
-        onUpdateInstalled: ((newVersion: Int) -> Unit)? = null
+        onUpdateInstalled: ((newVersion: Long) -> Unit)? = null
     ) {
         val now = System.currentTimeMillis()
         val lastCheck = prefs.getLong(KEY_LAST_CHECK_TIMESTAMP, 0L)
@@ -95,9 +107,15 @@ class WebBundleManager(context: Context) {
         scope.launch(Dispatchers.IO) {
             prefs.edit().putLong(KEY_LAST_CHECK_TIMESTAMP, now).apply()
             try {
-                Log.d(TAG, "Checking for web updates at: $DEFAULT_VERSION_URL")
-                val updateInfo = fetchRemoteVersionInfo(DEFAULT_VERSION_URL) ?: return@launch
-                val remoteVersion = updateInfo.optInt("version", 0)
+                // Bust CDN edge cache (GitHub Pages / Fastly caches version.json for 10 minutes)
+                val checkUrl = if (DEFAULT_VERSION_URL.contains("?")) {
+                    "$DEFAULT_VERSION_URL&t=$now"
+                } else {
+                    "$DEFAULT_VERSION_URL?t=$now"
+                }
+                Log.d(TAG, "Checking for web updates at: $checkUrl")
+                val updateInfo = fetchRemoteVersionInfo(checkUrl) ?: return@launch
+                val remoteVersion = updateInfo.optLong("version", 0L)
                 val zipUrl = updateInfo.optString("zipUrl", "")
 
                 Log.d(TAG, "Current local version: $currentVersion, Remote version: $remoteVersion")
@@ -145,8 +163,11 @@ class WebBundleManager(context: Context) {
             connection = url.openConnection() as HttpURLConnection
             connection.connectTimeout = 7000
             connection.readTimeout = 7000
+            connection.useCaches = false
             connection.instanceFollowRedirects = true
             connection.setRequestProperty("User-Agent", "SimpleListsApp-Android")
+            connection.setRequestProperty("Cache-Control", "no-cache, no-store")
+            connection.setRequestProperty("Pragma", "no-cache")
 
             if (connection.responseCode == HttpURLConnection.HTTP_OK) {
                 val jsonStr = connection.inputStream.bufferedReader().use { it.readText() }
@@ -170,6 +191,7 @@ class WebBundleManager(context: Context) {
             connection = url.openConnection() as HttpURLConnection
             connection.connectTimeout = 10000
             connection.readTimeout = 20000
+            connection.useCaches = false
             connection.instanceFollowRedirects = true
             connection.setRequestProperty("User-Agent", "SimpleListsApp-Android")
 

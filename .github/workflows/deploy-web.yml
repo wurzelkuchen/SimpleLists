@@ -35,13 +35,14 @@ jobs:
 
       - name: Generate OTA version.json & Package web-dist.zip
         run: |
-          # 1. Generate release version metadata with unique increasing build number
+          # 1. Generate release version metadata with unique monotonically increasing git commit timestamp
+          VERSION=$(git log -1 --format=%ct)
           cat <<EOF > web/dist/version.json
           {
-            "version": ${{ github.run_number }},
+            "version": $VERSION,
             "gitSha": "${{ github.sha }}",
             "builtAt": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
-            "zipUrl": "https://wurzelkuchen.github.io/SimpleLists/web-dist.zip"
+            "zipUrl": "https://wurzelkuchen.github.io/SimpleLists/web-dist.zip?v=$VERSION"
           }
           EOF
 
