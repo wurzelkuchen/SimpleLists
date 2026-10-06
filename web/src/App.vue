@@ -487,7 +487,11 @@ function triggerAddForFolder(folderId) {
 }
 
 function applyUpdate() {
-  window.location.reload();
+  if (window.AndroidBridge && typeof window.AndroidBridge.reloadApp === 'function') {
+    window.AndroidBridge.reloadApp();
+  } else {
+    window.location.reload();
+  }
 }
 
 const confirmDialog = ref({

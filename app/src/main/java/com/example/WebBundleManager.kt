@@ -95,7 +95,9 @@ class WebBundleManager(context: Context) {
     fun checkForUpdate(
         scope: CoroutineScope,
         force: Boolean = false,
-        onUpdateInstalled: ((newVersion: Long) -> Unit)? = null
+        onUpdateInstalled: ((newVersion: Long) -> Unit)? = null,
+        onUpToDate: ((currentVersion: Long) -> Unit)? = null,
+        onError: ((errorMsg: String) -> Unit)? = null
     ) {
         val now = System.currentTimeMillis()
         val lastCheck = prefs.getLong(KEY_LAST_CHECK_TIMESTAMP, 0L)
@@ -114,7 +116,14 @@ class WebBundleManager(context: Context) {
                     "$DEFAULT_VERSION_URL?t=$now"
                 }
                 Log.d(TAG, "Checking for web updates at: $checkUrl")
-                val updateInfo = fetchRemoteVersionInfo(checkUrl) ?: return@launch
+                val updateInfo = fetchRemoteVersionInfo(checkUrl)
+                if (updateInfo == null) {
+                    withContext(Dispatchers.Main) {
+                        onError?.invoke("Unable to reach update server")
+                    }
+                    return@launch
+                }
+
                 val remoteVersion = updateInfo.optLong("version", 0L)
                 val zipUrl = updateInfo.optString("zipUrl", "")
 
@@ -126,6 +135,9 @@ class WebBundleManager(context: Context) {
                     val downloadSuccess = downloadZip(zipUrl, tempZipFile)
                     if (!downloadSuccess) {
                         Log.e(TAG, "Failed to download update ZIP.")
+                        withContext(Dispatchers.Main) {
+                            onError?.invoke("Download failed")
+                        }
                         return@launch
                     }
 
@@ -135,6 +147,9 @@ class WebBundleManager(context: Context) {
                     if (!unpackSuccess) {
                         Log.e(TAG, "Failed to unpack or validate update bundle.")
                         deleteDirectory(stagingWebDir)
+                        withContext(Dispatchers.Main) {
+                            onError?.invoke("Validation failed")
+                        }
                         return@launch
                     }
 
@@ -148,10 +163,21 @@ class WebBundleManager(context: Context) {
                         }
                     } else {
                         Log.e(TAG, "Failed to apply staging bundle to active storage.")
+                        withContext(Dispatchers.Main) {
+                            onError?.invoke("Failed to apply update files")
+                        }
+                    }
+                } else {
+                    Log.i(TAG, "Already up to date. Local: $currentVersion, Remote: $remoteVersion")
+                    withContext(Dispatchers.Main) {
+                        onUpToDate?.invoke(currentVersion)
                     }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Error during web bundle update check", e)
+                withContext(Dispatchers.Main) {
+                    onError?.invoke(e.message ?: "Unknown error")
+                }
             }
         }
     }

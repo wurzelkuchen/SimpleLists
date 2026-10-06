@@ -224,4 +224,30 @@ class AndroidBridge(
             }
         }
     }
+
+    // ==========================================
+    // OTA UPDATE & VERSION APIS
+    // ==========================================
+
+    @JavascriptInterface
+    fun checkForUpdate(force: Boolean = true) {
+        activity.runOnUiThread {
+            activity.triggerUpdateCheck(force)
+        }
+    }
+
+    @JavascriptInterface
+    fun reloadApp() {
+        activity.runOnUiThread {
+            activity.reloadWebView()
+        }
+    }
+
+    @JavascriptInterface
+    fun getStoredWebVersion(): Long {
+        return activity.bundleManager.currentVersion
+    }
+
+    @JavascriptInterface
+    fun isNativeApp(): Boolean = true
 }

@@ -329,6 +329,100 @@
             </label>
           </div>
         </div>
+
+        <!-- App Version & Updates -->
+        <div class="bg-white border border-[#CAC4D0] rounded-2xl p-4 space-y-3 shadow-sm">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="font-bold text-[#1D1B20] uppercase tracking-wider text-xs">App Version & Updates</div>
+              <div class="text-[11px] text-[#49454F] mt-0.5">OTA dynamic bundle updates</div>
+            </div>
+            <span
+              class="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border"
+              :class="isAndroidApp ? 'bg-[#E8DEF8] text-[#21005D] border-[#CAC4D0]' : 'bg-blue-50 text-blue-900 border-blue-200'"
+            >
+              {{ isAndroidApp ? 'Android App' : 'Web Browser' }}
+            </span>
+          </div>
+
+          <!-- Version details badge row -->
+          <div class="grid grid-cols-2 gap-2 text-[11px] font-mono text-[#49454F]">
+            <div class="bg-[#F3F0F7] p-2.5 rounded-xl border border-[#CAC4D0]/60">
+              <span class="text-[#79747E] block text-[10px] uppercase font-bold font-sans">Build Version</span>
+              <span class="text-[#1D1B20] font-extrabold block text-xs">
+                v{{ appVersion.versionName }}
+                <span class="text-[10px] font-semibold text-[#6750A4] ml-1">#{{ appVersion.buildNumber }}</span>
+              </span>
+            </div>
+            <div class="bg-[#F3F0F7] p-2.5 rounded-xl border border-[#CAC4D0]/60">
+              <span class="text-[#79747E] block text-[10px] uppercase font-bold font-sans">Commit & Date</span>
+              <span class="text-[#1D1B20] font-bold block truncate" :title="appVersion.gitSha">
+                {{ appVersion.gitSha ? appVersion.gitSha.substring(0, 7) : 'dev' }}
+                <span v-if="formattedBuildDate" class="text-[10px] text-[#79747E] font-normal font-sans ml-1">
+                  ({{ formattedBuildDate }})
+                </span>
+              </span>
+            </div>
+          </div>
+
+          <!-- Update status banner if check triggered -->
+          <div
+            v-if="updateCheckMessage"
+            class="p-2.5 rounded-xl text-xs flex items-center space-x-2 border transition-all"
+            :class="[
+              updateCheckStatus === 'installed' ? 'bg-emerald-50 text-emerald-900 border-emerald-300' :
+              updateCheckStatus === 'up-to-date' ? 'bg-[#F3F0F7] text-[#21005D] border-[#CAC4D0]' :
+              updateCheckStatus === 'error' ? 'bg-rose-50 text-rose-900 border-rose-300' :
+              'bg-amber-50 text-amber-900 border-amber-300'
+            ]"
+          >
+            <svg
+              v-if="isCheckingUpdate"
+              class="w-4 h-4 animate-spin text-amber-700 shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span v-else class="text-sm shrink-0">
+              {{ updateCheckStatus === 'installed' ? '🎉' : updateCheckStatus === 'up-to-date' ? '✓' : updateCheckStatus === 'error' ? '⚠️' : 'ℹ️' }}
+            </span>
+            <span class="font-medium flex-1">{{ updateCheckMessage }}</span>
+          </div>
+
+          <!-- Action buttons: Check for Updates & Reload -->
+          <div class="flex items-center space-x-2 pt-1">
+            <button
+              @click="handleCheckForUpdates"
+              :disabled="isCheckingUpdate"
+              class="flex-1 py-2.5 px-3 bg-[#F3F0F7] hover:bg-[#E8DEF8] active:scale-95 disabled:opacity-60 text-[#1D1B20] rounded-xl text-xs font-bold uppercase tracking-wider border border-[#CAC4D0] transition-colors flex items-center justify-center space-x-1.5"
+            >
+              <svg
+                class="w-4 h-4 text-[#6750A4]"
+                :class="{ 'animate-spin': isCheckingUpdate }"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span>{{ isCheckingUpdate ? 'Checking...' : 'Check for Updates' }}</span>
+            </button>
+
+            <button
+              v-if="updateCheckStatus === 'installed' || isAndroidApp"
+              @click="reloadApp"
+              class="py-2.5 px-3.5 bg-[#6750A4] hover:bg-[#533f86] active:scale-95 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-colors shadow-sm flex items-center space-x-1"
+              title="Reload web view and apply latest bundle"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span>Reload</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Footer -->
@@ -359,9 +453,39 @@ const activeCategory = ref('ALL');
 const logEntries = ref(syncLogger.getLogs());
 const logContainer = ref(null);
 
+const appVersion = ref({
+  versionName: '1.0.0',
+  buildNumber: 1,
+  gitSha: '',
+  builtAt: '',
+  version: 0
+});
+const isAndroidApp = ref(false);
+const isCheckingUpdate = ref(false);
+const updateCheckStatus = ref('');
+const updateCheckMessage = ref('');
+
+const formattedBuildDate = computed(() => {
+  if (!appVersion.value.builtAt) return '';
+  try {
+    const d = new Date(appVersion.value.builtAt);
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch (e) {
+    return appVersion.value.builtAt;
+  }
+});
+
 let unsubscribeLogger = null;
 
 onMounted(() => {
+  loadAppVersion();
+  window.addEventListener('web-update-status', handleUpdateStatusEvent);
+
   unsubscribeLogger = syncLogger.onLog((_, allLogs) => {
     logEntries.value = [...allLogs];
     nextTick(() => {
@@ -379,6 +503,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (unsubscribeLogger) unsubscribeLogger();
+  window.removeEventListener('web-update-status', handleUpdateStatusEvent);
 });
 
 const filteredLogs = computed(() => {
@@ -487,5 +612,100 @@ function importJsonBackup(e) {
     }
   };
   reader.readAsText(file);
+}
+
+async function loadAppVersion() {
+  isAndroidApp.value = !!(window.AndroidBridge && typeof window.AndroidBridge.checkForUpdate === 'function');
+  try {
+    const res = await fetch('./version.json?t=' + Date.now());
+    if (res.ok) {
+      const data = await res.json();
+      appVersion.value = {
+        versionName: data.versionName || (data.buildNumber ? `1.0.${data.buildNumber}` : '1.0.0'),
+        buildNumber: data.buildNumber || 1,
+        gitSha: data.gitSha || '',
+        builtAt: data.builtAt || '',
+        version: data.version || 0
+      };
+    }
+  } catch (err) {
+    console.warn('Failed to load version.json', err);
+  }
+}
+
+function handleUpdateStatusEvent(event) {
+  const detail = event?.detail;
+  if (!detail) return;
+  console.log('web-update-status received:', detail);
+
+  if (detail.status === 'checking') {
+    isCheckingUpdate.value = true;
+    updateCheckStatus.value = 'checking';
+    updateCheckMessage.value = 'Checking for updates on GitHub...';
+  } else if (detail.status === 'installed') {
+    isCheckingUpdate.value = false;
+    updateCheckStatus.value = 'installed';
+    updateCheckMessage.value = `New build installed! Tap Reload to apply.`;
+    loadAppVersion();
+  } else if (detail.status === 'up-to-date') {
+    isCheckingUpdate.value = false;
+    updateCheckStatus.value = 'up-to-date';
+    updateCheckMessage.value = 'App is running the latest build.';
+  } else if (detail.status === 'error') {
+    isCheckingUpdate.value = false;
+    updateCheckStatus.value = 'error';
+    updateCheckMessage.value = detail.message || 'Update check failed. Verify network connection.';
+  }
+}
+
+async function handleCheckForUpdates() {
+  isCheckingUpdate.value = true;
+  updateCheckStatus.value = 'checking';
+  updateCheckMessage.value = 'Checking for updates...';
+
+  if (isAndroidApp.value) {
+    window.AndroidBridge.checkForUpdate(true);
+    setTimeout(() => {
+      if (isCheckingUpdate.value) {
+        isCheckingUpdate.value = false;
+        if (updateCheckStatus.value === 'checking') {
+          updateCheckStatus.value = 'error';
+          updateCheckMessage.value = 'Update check timed out. Please try again.';
+        }
+      }
+    }, 12000);
+  } else {
+    try {
+      const remoteRes = await fetch('https://wurzelkuchen.github.io/SimpleLists/version.json?t=' + Date.now());
+      if (remoteRes.ok) {
+        const remoteData = await remoteRes.json();
+        const currentVer = appVersion.value.version || 0;
+        const currentBuild = appVersion.value.buildNumber || 0;
+        if ((remoteData.version && remoteData.version > currentVer) || (remoteData.buildNumber && remoteData.buildNumber > currentBuild)) {
+          updateCheckStatus.value = 'installed';
+          updateCheckMessage.value = `New version available (v${remoteData.versionName || remoteData.buildNumber})! Reload to update.`;
+        } else {
+          updateCheckStatus.value = 'up-to-date';
+          updateCheckMessage.value = 'App is running the latest build.';
+        }
+      } else {
+        updateCheckStatus.value = 'error';
+        updateCheckMessage.value = 'Could not reach update server.';
+      }
+    } catch (e) {
+      updateCheckStatus.value = 'error';
+      updateCheckMessage.value = 'Network error checking for updates.';
+    } finally {
+      isCheckingUpdate.value = false;
+    }
+  }
+}
+
+function reloadApp() {
+  if (window.AndroidBridge && typeof window.AndroidBridge.reloadApp === 'function') {
+    window.AndroidBridge.reloadApp();
+  } else {
+    window.location.reload();
+  }
 }
 </script>

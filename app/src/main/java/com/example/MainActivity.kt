@@ -53,7 +53,7 @@ import org.json.JSONObject
 class MainActivity : ComponentActivity() {
 
   private var webView: WebView? = null
-  private val bundleManager by lazy { WebBundleManager(applicationContext) }
+  val bundleManager by lazy { WebBundleManager(applicationContext) }
   private var pendingNotificationIntent: Intent? = null
 
   // File Chooser state for <input type="file"> support in WebView
@@ -167,14 +167,7 @@ class MainActivity : ComponentActivity() {
             onWebViewCreated = { wv ->
               webView = wv
               // Check for OTA web updates in background and notify the WebView if ready
-              bundleManager.checkForUpdate(lifecycleScope) { newVersion ->
-                wv.post {
-                  wv.evaluateJavascript(
-                    "window.dispatchEvent(new CustomEvent('web-update-ready', { detail: { version: $newVersion } }));",
-                    null
-                  )
-                }
-              }
+              triggerUpdateCheck(force = false)
 
               // Dispatch any pending notification click from cold start
               pendingNotificationIntent?.let {
@@ -185,6 +178,56 @@ class MainActivity : ComponentActivity() {
           )
         }
       }
+    }
+  }
+
+  fun triggerUpdateCheck(force: Boolean = true) {
+    val wv = webView ?: return
+    wv.post {
+      wv.evaluateJavascript(
+        "window.dispatchEvent(new CustomEvent('web-update-status', { detail: { status: 'checking' } }));",
+        null
+      )
+    }
+    bundleManager.checkForUpdate(
+      scope = lifecycleScope,
+      force = force,
+      onUpdateInstalled = { newVersion ->
+        wv.post {
+          wv.evaluateJavascript(
+            "window.dispatchEvent(new CustomEvent('web-update-ready', { detail: { version: $newVersion } }));",
+            null
+          )
+          wv.evaluateJavascript(
+            "window.dispatchEvent(new CustomEvent('web-update-status', { detail: { status: 'installed', version: $newVersion } }));",
+            null
+          )
+        }
+      },
+      onUpToDate = { currentVersion ->
+        wv.post {
+          wv.evaluateJavascript(
+            "window.dispatchEvent(new CustomEvent('web-update-status', { detail: { status: 'up-to-date', version: $currentVersion } }));",
+            null
+          )
+        }
+      },
+      onError = { errorMsg ->
+        val escaped = JSONObject.quote(errorMsg)
+        wv.post {
+          wv.evaluateJavascript(
+            "window.dispatchEvent(new CustomEvent('web-update-status', { detail: { status: 'error', message: $escaped } }));",
+            null
+          )
+        }
+      }
+    )
+  }
+
+  fun reloadWebView() {
+    webView?.post {
+      webView?.clearCache(true)
+      webView?.reload()
     }
   }
 
@@ -211,14 +254,7 @@ class MainActivity : ComponentActivity() {
     super.onResume()
     webView?.onResume()
     // Periodic check on resume (throttled by bundleManager to at most once per 5 minutes)
-    bundleManager.checkForUpdate(lifecycleScope) { newVersion ->
-      webView?.post {
-        webView?.evaluateJavascript(
-          "window.dispatchEvent(new CustomEvent('web-update-ready', { detail: { version: $newVersion } }));",
-          null
-        )
-      }
-    }
+    triggerUpdateCheck(force = false)
   }
 
   override fun onPause() {
