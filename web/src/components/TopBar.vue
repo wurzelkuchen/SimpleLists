@@ -77,6 +77,18 @@
           <span v-if="store.syncState.peerCount > 0" class="sm:hidden font-mono text-[11px]">{{ store.syncState.peerCount }}p</span>
         </button>
 
+        <!-- Add Folder toggle -->
+        <button
+          @click="$emit('create-folder')"
+          class="p-2 rounded-xl text-[#49454F] hover:text-[#1D1B20] hover:bg-[#F3F0F7] active:scale-95 transition-all"
+          title="Add folder/section"
+          aria-label="Add folder"
+        >
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+          </svg>
+        </button>
+
         <!-- Sort selector toggle -->
         <button
           @click="$emit('open-sort')"
@@ -130,7 +142,7 @@ import { ref, computed, nextTick } from 'vue';
 import { useListStore } from '../stores/listStore.js';
 
 const store = useListStore();
-defineEmits(['open-sort']);
+defineEmits(['open-sort', 'create-folder']);
 
 const isEditingTitle = ref(false);
 const editTitle = ref('');

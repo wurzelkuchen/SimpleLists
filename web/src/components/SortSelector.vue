@@ -12,6 +12,9 @@
           </div>
           <div>
             <h3 class="text-base font-extrabold uppercase tracking-tight text-[#1D1B20]">Sort Items</h3>
+            <p v-if="store.activeListFolders.length > 0" class="text-[11px] font-bold text-[#6750A4] uppercase tracking-wider">
+              Within Folders / Sections
+            </p>
           </div>
         </div>
         <button

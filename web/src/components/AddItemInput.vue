@@ -1,13 +1,44 @@
 <template>
-  <div class="px-3 pt-3 pb-[max(0.75rem,calc(0.75rem+env(safe-area-inset-bottom,0px)))] sm:p-4 bg-[#FEF7FF]/95 backdrop-blur-md border-t border-[#E6E0E9] sticky bottom-0 z-20 shrink-0 select-none [.keyboard-open_&]:pb-3 transition-all">
-    <div class="max-w-4xl mx-auto">
+  <div class="px-3 pt-2 pb-[max(0.75rem,calc(0.75rem+env(safe-area-inset-bottom,0px)))] sm:p-4 bg-[#FEF7FF]/95 backdrop-blur-md border-t border-[#E6E0E9] sticky bottom-0 z-20 shrink-0 select-none [.keyboard-open_&]:pb-3 transition-all">
+    <div class="max-w-4xl mx-auto space-y-1.5">
+      <!-- Target Folder Selector Pill if folders exist -->
+      <div v-if="folders && folders.length > 0" class="flex items-center space-x-1.5 overflow-x-auto py-0.5 text-xs">
+        <span class="text-[10px] font-bold uppercase tracking-wider text-[#79747E] shrink-0">Add To:</span>
+        <button
+          type="button"
+          @click="selectFolder(null)"
+          class="px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition-all border shrink-0"
+          :class="[
+            !selectedFolderId
+              ? 'bg-[#6750A4] text-white border-[#6750A4] shadow-sm'
+              : 'bg-white text-[#49454F] border-[#CAC4D0] hover:bg-[#F3F0F7]'
+          ]"
+        >
+          General
+        </button>
+        <button
+          v-for="f in folders"
+          :key="f.id"
+          type="button"
+          @click="selectFolder(f.id)"
+          class="px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition-all border shrink-0"
+          :class="[
+            selectedFolderId === f.id
+              ? 'bg-[#6750A4] text-white border-[#6750A4] shadow-sm'
+              : 'bg-white text-[#49454F] border-[#CAC4D0] hover:bg-[#F3F0F7]'
+          ]"
+        >
+          📁 {{ f.name }}
+        </button>
+      </div>
+
       <form @submit.prevent="handleSubmit" class="flex items-center space-x-2.5">
         <div class="relative flex-1">
           <input
             ref="inputEl"
             v-model="text"
             type="text"
-            placeholder="Add an item..."
+            :placeholder="placeholderText"
             enterkeyhint="done"
             @focus="handleFocus"
             class="w-full bg-white border-2 border-[#CAC4D0] focus:border-[#6750A4] rounded-2xl pl-4 pr-10 py-3 text-base sm:text-base font-medium text-[#1D1B20] placeholder-[#79747E] focus:outline-none shadow-sm transition-all"
@@ -41,11 +72,39 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 
-const emit = defineEmits(['add']);
+const props = defineProps({
+  folders: {
+    type: Array,
+    default: () => []
+  },
+  modelValueTargetFolder: {
+    type: String,
+    default: null
+  }
+});
+
+const emit = defineEmits(['add', 'update:targetFolder']);
+
 const text = ref('');
 const inputEl = ref(null);
+const selectedFolderId = ref(props.modelValueTargetFolder);
+
+watch(() => props.modelValueTargetFolder, (newVal) => {
+  selectedFolderId.value = newVal;
+});
+
+function selectFolder(id) {
+  selectedFolderId.value = id;
+  emit('update:targetFolder', id);
+}
+
+const placeholderText = computed(() => {
+  if (!selectedFolderId.value || !props.folders || props.folders.length === 0) return 'Add an item...';
+  const f = props.folders.find(folder => folder.id === selectedFolderId.value);
+  return f ? `Add to ${f.name}...` : 'Add an item...';
+});
 
 function handleFocus() {
   setTimeout(() => {
@@ -55,11 +114,24 @@ function handleFocus() {
   }, 150);
 }
 
+function focusInput(folderId = undefined) {
+  if (folderId !== undefined) {
+    selectFolder(folderId);
+  }
+  nextTick(() => {
+    if (inputEl.value) {
+      inputEl.value.focus();
+    }
+  });
+}
+
 function handleSubmit() {
   const trimmed = text.value.trim();
   if (trimmed) {
-    emit('add', trimmed);
+    emit('add', { text: trimmed, folderId: selectedFolderId.value });
     text.value = '';
   }
 }
+
+defineExpose({ focusInput, selectFolder });
 </script>

@@ -120,6 +120,19 @@
             ></textarea>
           </div>
 
+          <div v-if="folders && folders.length > 0">
+            <label class="block text-[10px] font-bold uppercase tracking-wider text-[#49454F] mb-1">
+              Folder / Section
+            </label>
+            <select
+              v-model="editFolderId"
+              class="w-full bg-white border border-[#CAC4D0] focus:border-[#6750A4] rounded-xl px-3 py-1.5 text-xs sm:text-sm font-semibold text-[#1D1B20] focus:outline-none shadow-sm transition-all"
+            >
+              <option :value="null">📁 General / Unassigned</option>
+              <option v-for="f in folders" :key="f.id" :value="f.id">📁 {{ f.name }}</option>
+            </select>
+          </div>
+
           <div class="flex items-center justify-end space-x-2 pt-1">
             <button
               type="button"
@@ -170,6 +183,15 @@
           >
             {{ item.details }}
           </div>
+
+          <!-- Optional Folder Tag badge -->
+          <div
+            v-if="itemFolderName"
+            class="inline-flex items-center space-x-1 mt-1.5 px-2 py-0.5 rounded-md bg-[#E8DEF8] text-[#21005D] text-[10px] font-bold uppercase tracking-wider"
+          >
+            <span>📁</span>
+            <span>{{ itemFolderName }}</span>
+          </div>
         </div>
       </div>
 
@@ -210,18 +232,28 @@ const props = defineProps({
   isCustomSort: {
     type: Boolean,
     default: false
+  },
+  folders: {
+    type: Array,
+    default: () => []
   }
 });
 
 const emit = defineEmits(['update-status', 'update-text', 'update-item', 'move']);
 
 const hasDetails = computed(() => !!(props.item.details && props.item.details.trim()));
-const isMultiline = computed(() => isEditing.value || hasDetails.value);
+const itemFolderName = computed(() => {
+  if (!props.item.folderId || !props.folders || props.folders.length === 0) return null;
+  const f = props.folders.find(folder => folder.id === props.item.folderId);
+  return f ? f.name : null;
+});
+const isMultiline = computed(() => isEditing.value || hasDetails.value || !!itemFolderName.value);
 
 // Inline edit state
 const isEditing = ref(false);
 const editText = ref('');
 const editDetails = ref('');
+const editFolderId = ref(null);
 const editInput = ref(null);
 const detailsInput = ref(null);
 const cardSurface = ref(null);
@@ -229,6 +261,7 @@ const cardSurface = ref(null);
 function startEdit() {
   editText.value = props.item.text;
   editDetails.value = props.item.details || '';
+  editFolderId.value = props.item.folderId || null;
   isEditing.value = true;
   nextTick(() => {
     if (editInput.value) {
@@ -256,9 +289,14 @@ function saveEdit() {
 
   const textChanged = trimmedText !== props.item.text;
   const detailsChanged = trimmedDetails !== (props.item.details || '');
+  const folderChanged = (editFolderId.value || null) !== (props.item.folderId || null);
 
-  if (textChanged || detailsChanged) {
-    emit('update-item', { text: trimmedText, details: trimmedDetails });
+  if (textChanged || detailsChanged || folderChanged) {
+    emit('update-item', {
+      text: trimmedText,
+      details: trimmedDetails,
+      folderId: editFolderId.value || null
+    });
     emit('update-text', trimmedText);
   }
   isEditing.value = false;
@@ -268,6 +306,7 @@ function cancelEdit() {
   isEditing.value = false;
   editText.value = props.item.text;
   editDetails.value = props.item.details || '';
+  editFolderId.value = props.item.folderId || null;
 }
 
 function handleClickOutside(e) {
