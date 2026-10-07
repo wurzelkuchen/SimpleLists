@@ -1,6 +1,8 @@
 {
-  "version": 1791266013,
-  "gitSha": "c5584b439d3fcbe707a4bec19ac557517de5fc88",
-  "builtAt": "2026-10-06T05:57:35Z",
-  "zipUrl": "https://wurzelkuchen.github.io/SimpleLists/web-dist.zip?v=1791266013"
+  "version": 1791359221,
+  "buildNumber": 19,
+  "versionName": "1.0.19",
+  "gitSha": "44473c0",
+  "builtAt": "2026-10-07T18:41:12Z",
+  "zipUrl": "https://wurzelkuchen.github.io/SimpleLists/web-dist.zip?v=1791359221"
 }
