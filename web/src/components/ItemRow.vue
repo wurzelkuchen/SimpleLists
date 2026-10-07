@@ -129,7 +129,9 @@
               class="w-full bg-white border border-[#CAC4D0] focus:border-[#6750A4] rounded-xl px-3 py-1.5 text-xs sm:text-sm font-semibold text-[#1D1B20] focus:outline-none shadow-sm transition-all"
             >
               <option :value="null">📁 General / Unassigned</option>
-              <option v-for="f in folders" :key="f.id" :value="f.id">📁 {{ f.name }}</option>
+              <option v-for="f in folders" :key="f.id" :value="f.id">
+                {{ '\u00A0\u00A0'.repeat(f.depth || 0) }}📁 {{ f.name }}
+              </option>
             </select>
           </div>
 
@@ -187,10 +189,11 @@
           <!-- Optional Folder Tag badge -->
           <div
             v-if="itemFolderName"
-            class="inline-flex items-center space-x-1 mt-1.5 px-2 py-0.5 rounded-md bg-[#E8DEF8] text-[#21005D] text-[10px] font-bold uppercase tracking-wider"
+            :title="itemFolderPath"
+            class="inline-flex items-center space-x-1 mt-1.5 px-2 py-0.5 rounded-md bg-[#E8DEF8] text-[#21005D] text-[10px] font-bold uppercase tracking-wider max-w-full truncate"
           >
             <span>📁</span>
-            <span>{{ itemFolderName }}</span>
+            <span class="truncate">{{ itemFolderPath || itemFolderName }}</span>
           </div>
         </div>
       </div>
@@ -242,11 +245,12 @@ const props = defineProps({
 const emit = defineEmits(['update-status', 'update-text', 'update-item', 'move']);
 
 const hasDetails = computed(() => !!(props.item.details && props.item.details.trim()));
-const itemFolderName = computed(() => {
+const itemFolder = computed(() => {
   if (!props.item.folderId || !props.folders || props.folders.length === 0) return null;
-  const f = props.folders.find(folder => folder.id === props.item.folderId);
-  return f ? f.name : null;
+  return props.folders.find(folder => folder.id === props.item.folderId) || null;
 });
+const itemFolderName = computed(() => itemFolder.value ? itemFolder.value.name : null);
+const itemFolderPath = computed(() => itemFolder.value ? (itemFolder.value.path || itemFolder.value.name) : null);
 const isMultiline = computed(() => isEditing.value || hasDetails.value || !!itemFolderName.value);
 
 // Inline edit state

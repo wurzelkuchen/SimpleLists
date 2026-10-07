@@ -3,7 +3,7 @@
     <!-- Top Bar -->
     <TopBar
       @open-sort="isSortSelectorOpen = true"
-      @create-folder="openCreateFolderModal"
+      @create-folder="openCreateFolderModal(null)"
     />
 
     <!-- Search / Filter Bar (compact filter if items exist) -->
@@ -33,115 +33,13 @@
       <div class="max-w-4xl mx-auto min-h-full flex flex-col justify-between">
         <!-- Section / Folder Grouped View -->
         <div v-if="store.activeListFolders.length > 0" class="space-y-4">
+          <!-- Unassigned / General Header Card (if unassigned items exist) -->
           <div
-            v-for="group in store.groupedItems"
-            :key="group.folder ? group.folder.id : 'unassigned'"
+            v-if="store.unassignedItems.length > 0"
             class="space-y-2"
           >
-            <!-- Folder Header Card -->
             <div
-              v-if="group.folder"
-              class="flex items-center justify-between px-3.5 py-2.5 bg-[#F3F0F7] border border-[#CAC4D0] rounded-2xl shadow-sm transition-all"
-            >
-              <div class="flex items-center space-x-2.5 min-w-0 flex-1">
-                <button
-                  type="button"
-                  @click="store.toggleFolderCollapse(store.activeList.id, group.folder.id)"
-                  class="p-1 text-[#49454F] hover:text-[#1D1B20] transition-transform duration-200"
-                  :class="{ '-rotate-90': group.folder.isCollapsed }"
-                  title="Toggle collapse"
-                >
-                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-
-                <div
-                  @click="openRenameFolderModal(group.folder)"
-                  class="flex items-center space-x-2 min-w-0 cursor-pointer group/title"
-                  title="Click to rename folder"
-                >
-                  <span class="text-sm font-extrabold uppercase tracking-tight text-[#1D1B20] truncate group-hover/title:text-[#6750A4] transition-colors">
-                    📁 {{ group.folder.name }}
-                  </span>
-                  <svg class="w-3.5 h-3.5 text-[#79747E] opacity-0 group-hover/title:opacity-100 transition-opacity shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                </div>
-
-                <span class="px-2 py-0.5 rounded-full bg-[#E8DEF8] text-[#21005D] text-[10px] font-bold shrink-0">
-                  {{ getFolderStats(group.items) }}
-                </span>
-              </div>
-
-              <!-- Folder Actions -->
-              <div class="flex items-center space-x-1 shrink-0">
-                <!-- Quick Add To This Folder -->
-                <button
-                  type="button"
-                  @click="triggerAddForFolder(group.folder.id)"
-                  class="p-1.5 rounded-xl text-[#49454F] hover:text-[#6750A4] hover:bg-white transition-colors"
-                  title="Add item to this folder"
-                >
-                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
-                  </svg>
-                </button>
-
-                <!-- Rename Folder -->
-                <button
-                  type="button"
-                  @click="openRenameFolderModal(group.folder)"
-                  class="p-1.5 rounded-xl text-[#49454F] hover:text-[#1D1B20] hover:bg-white transition-colors"
-                  title="Rename folder"
-                >
-                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                </button>
-
-                <!-- Move Folder Position (custom sort) -->
-                <button
-                  v-if="store.sortMode === 'custom' && store.activeListFolders.length > 1"
-                  type="button"
-                  @click="store.moveFolderPosition(store.activeList.id, group.folder.id, 'up')"
-                  class="p-1 text-[#49454F] hover:text-[#6750A4] hover:bg-white rounded-lg transition-colors"
-                  title="Move folder up"
-                >
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7" />
-                  </svg>
-                </button>
-                <button
-                  v-if="store.sortMode === 'custom' && store.activeListFolders.length > 1"
-                  type="button"
-                  @click="store.moveFolderPosition(store.activeList.id, group.folder.id, 'down')"
-                  class="p-1 text-[#49454F] hover:text-[#6750A4] hover:bg-white rounded-lg transition-colors"
-                  title="Move folder down"
-                >
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-
-                <!-- Delete Folder -->
-                <button
-                  type="button"
-                  @click="confirmDeleteFolder(group.folder)"
-                  class="p-1.5 rounded-xl text-[#49454F] hover:text-red-600 hover:bg-white transition-colors"
-                  title="Delete folder"
-                >
-                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <!-- Unassigned / General Header Card -->
-            <div
-              v-else-if="group.items.length > 0"
-              class="flex items-center justify-between px-3.5 py-2.5 bg-[#F3F0F7]/70 border border-[#CAC4D0]/70 rounded-2xl shadow-sm transition-all"
+              class="flex items-center justify-between px-3.5 py-2.5 bg-[#F3F0F7]/80 border border-[#CAC4D0]/80 rounded-2xl shadow-sm transition-all"
             >
               <div class="flex items-center space-x-2.5 min-w-0 flex-1">
                 <button
@@ -161,7 +59,7 @@
                 </span>
 
                 <span class="px-2 py-0.5 rounded-full bg-[#E8DEF8] text-[#21005D] text-[10px] font-bold shrink-0">
-                  {{ getFolderStats(group.items) }}
+                  {{ getFolderStats(store.unassignedItems) }}
                 </span>
               </div>
 
@@ -178,45 +76,58 @@
               </button>
             </div>
 
-            <!-- Items inside Group -->
+            <!-- Items inside General -->
             <div
-              v-if="(group.folder ? !group.folder.isCollapsed : !isGeneralCollapsed)"
-              class="space-y-1.5 pl-1.5 sm:pl-3"
+              v-if="!isGeneralCollapsed"
+              class="space-y-1.5 pl-2 sm:pl-3 border-l-2 border-[#CAC4D0]/40 ml-2.5 sm:ml-3"
             >
-              <div v-if="group.items.length > 0" class="space-y-1.5">
-                <ItemRow
-                  v-for="item in group.items"
-                  :key="item.id"
-                  :item="item"
-                  :folders="store.activeListFolders"
-                  :is-custom-sort="store.sortMode === 'custom'"
-                  @update-status="(status) => handleUpdateStatus(item.id, status)"
-                  @update-text="(text) => handleUpdateText(item.id, text)"
-                  @update-item="(payload) => handleUpdateItem(item.id, payload)"
-                  @move="(dir) => handleMoveItem(item.id, dir)"
-                />
-              </div>
-              <div
-                v-else
-                class="py-3 px-4 text-center text-xs font-semibold text-[#79747E] bg-white/50 rounded-2xl border border-dashed border-[#CAC4D0]"
-              >
-                No items in this folder yet.
-                <button
-                  type="button"
-                  @click="triggerAddForFolder(group.folder ? group.folder.id : null)"
-                  class="ml-1.5 text-[#6750A4] font-bold hover:underline"
-                >
-                  + Add Item
-                </button>
-              </div>
+              <ItemRow
+                v-for="item in store.unassignedItems"
+                :key="item.id"
+                :item="item"
+                :folders="store.activeListFoldersWithHierarchy"
+                :is-custom-sort="store.sortMode === 'custom'"
+                @update-status="(status) => handleUpdateStatus(item.id, status)"
+                @update-text="(text) => handleUpdateText(item.id, text)"
+                @update-item="(payload) => handleUpdateItem(item.id, payload)"
+                @move="(dir) => handleMoveItem(item.id, dir)"
+              />
             </div>
+          </div>
+
+          <!-- Root Folders (and their nested subfolders recursively) -->
+          <div class="space-y-3">
+            <FolderSection
+              v-for="(rootFolder, idx) in store.activeListFoldersTree"
+              :key="rootFolder.id"
+              :folder="rootFolder"
+              :depth="0"
+              :all-folders="store.activeListFoldersWithHierarchy"
+              :is-custom-sort="store.sortMode === 'custom'"
+              :is-first-sibling="idx === 0"
+              :is-last-sibling="idx === store.activeListFoldersTree.length - 1"
+              :open-menu-folder-id="openMenuFolderId"
+              @toggle-collapse="(id) => store.toggleFolderCollapse(store.activeList.id, id)"
+              @create-subfolder="(parentId) => openCreateFolderModal(parentId)"
+              @rename-folder="(f) => openRenameFolderModal(f)"
+              @move-folder="(f) => openMoveFolderModal(f)"
+              @move-position="(id, dir) => store.moveFolderPosition(store.activeList.id, id, dir)"
+              @delete-folder="(f) => confirmDeleteFolder(f)"
+              @quick-add="(id) => triggerAddForFolder(id)"
+              @toggle-menu="(id) => toggleFolderMenu(id)"
+              @close-menu="openMenuFolderId = null"
+              @update-status="(id, status) => handleUpdateStatus(id, status)"
+              @update-text="(id, text) => handleUpdateText(id, text)"
+              @update-item="(id, payload) => handleUpdateItem(id, payload)"
+              @move-item="(id, dir) => handleMoveItem(id, dir)"
+            />
           </div>
 
           <!-- Bottom Add Folder Button -->
           <div class="pt-2 flex justify-center">
             <button
               type="button"
-              @click="openCreateFolderModal"
+              @click="openCreateFolderModal(null)"
               class="px-4 py-2 bg-white hover:bg-[#E8DEF8] text-[#21005D] rounded-2xl text-xs font-bold uppercase tracking-wider border border-[#CAC4D0] transition-colors shadow-sm flex items-center space-x-1.5"
             >
               <svg class="w-4 h-4 text-[#6750A4]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -233,7 +144,7 @@
             v-for="item in store.sortedItems"
             :key="item.id"
             :item="item"
-            :folders="store.activeListFolders"
+            :folders="store.activeListFoldersWithHierarchy"
             :is-custom-sort="store.sortMode === 'custom'"
             @update-status="(status) => handleUpdateStatus(item.id, status)"
             @update-text="(text) => handleUpdateText(item.id, text)"
@@ -245,7 +156,7 @@
           <div class="pt-4 flex justify-center">
             <button
               type="button"
-              @click="openCreateFolderModal"
+              @click="openCreateFolderModal(null)"
               class="px-3.5 py-1.5 bg-white/80 hover:bg-[#E8DEF8] text-[#49454F] hover:text-[#21005D] rounded-2xl text-[11px] font-bold uppercase tracking-wider border border-[#CAC4D0] transition-colors shadow-sm flex items-center space-x-1.5"
             >
               <svg class="w-3.5 h-3.5 text-[#6750A4]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -282,7 +193,7 @@
             </button>
             <button
               v-if="!store.searchQuery"
-              @click="openCreateFolderModal"
+              @click="openCreateFolderModal(null)"
               class="px-4 py-2.5 bg-white hover:bg-[#F3F0F7] text-[#1D1B20] rounded-2xl text-xs font-bold uppercase tracking-wider border border-[#CAC4D0] transition-colors shadow-sm"
             >
               + Add Folder
@@ -301,7 +212,7 @@
     <!-- Bottom Add Item Input Bar -->
     <AddItemInput
       ref="addItemInputRef"
-      :folders="store.activeListFolders"
+      :folders="store.activeListFoldersWithHierarchy"
       :model-value-target-folder="store.activeTargetFolderId"
       @update:target-folder="(id) => store.setActiveTargetFolder(id)"
       @add="handleAddItem"
@@ -317,9 +228,14 @@
           <div class="w-8 h-8 rounded-xl bg-[#E8DEF8] text-[#21005D] flex items-center justify-center font-bold">
             📁
           </div>
-          <h3 class="text-base font-extrabold uppercase tracking-tight text-[#1D1B20]">
-            {{ folderModalMode === 'create' ? 'New Folder / Section' : 'Rename Folder' }}
-          </h3>
+          <div class="min-w-0 flex-1">
+            <h3 class="text-base font-extrabold uppercase tracking-tight text-[#1D1B20] truncate">
+              {{ folderModalMode === 'create' ? (targetParentFolderName ? `Subfolder in "${targetParentFolderName}"` : 'New Folder / Section') : 'Rename Folder' }}
+            </h3>
+            <p v-if="folderModalMode === 'create' && targetParentFolderName" class="text-[10px] text-[#49454F] truncate font-medium">
+              Parent: {{ targetParentFolderName }}
+            </p>
+          </div>
         </div>
 
         <form @submit.prevent="handleSaveFolderModal" class="space-y-4">
@@ -364,6 +280,15 @@
     <SettingsModal v-if="store.isSettingsModalOpen" @request-confirm="openConfirmModal" />
     <SetupPhraseModal v-if="store.isSetupModalOpen" />
 
+    <MoveFolderModal
+      :is-open="isMoveModalOpen"
+      :folder="movingFolder"
+      :all-folders="store.activeListFoldersWithHierarchy"
+      :descendant-ids="movingFolderDescendantIds"
+      @close="isMoveModalOpen = false"
+      @move="handleMoveFolderConfirm"
+    />
+
     <ConfirmModal
       :is-open="confirmDialog.isOpen"
       :title="confirmDialog.title"
@@ -395,7 +320,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import { useListStore } from './stores/listStore.js';
 import TopBar from './components/TopBar.vue';
 import Sidebar from './components/Sidebar.vue';
@@ -406,6 +331,8 @@ import ImportModal from './components/ImportModal.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import SetupPhraseModal from './components/SetupPhraseModal.vue';
 import ConfirmModal from './components/ConfirmModal.vue';
+import FolderSection from './components/FolderSection.vue';
+import MoveFolderModal from './components/MoveFolderModal.vue';
 
 const store = useListStore();
 
@@ -414,15 +341,51 @@ const isSortSelectorOpen = ref(false);
 const updateAvailable = ref(false);
 const isGeneralCollapsed = ref(false);
 
-// Folder Modal state
+// Active hamburger menu folder ID (only 1 open at a time)
+const openMenuFolderId = ref(null);
+
+function toggleFolderMenu(folderId) {
+  openMenuFolderId.value = openMenuFolderId.value === folderId ? null : folderId;
+}
+
+// Move Folder Modal state
+const isMoveModalOpen = ref(false);
+const movingFolder = ref(null);
+const movingFolderDescendantIds = computed(() => {
+  if (!movingFolder.value || !store.activeList) return new Set();
+  return store.getFolderDescendantIds(store.activeList.id, movingFolder.value.id);
+});
+
+function openMoveFolderModal(folder) {
+  movingFolder.value = folder;
+  isMoveModalOpen.value = true;
+}
+
+function handleMoveFolderConfirm({ folderId, newParentId }) {
+  if (store.activeList) {
+    store.moveFolderParent(store.activeList.id, folderId, newParentId);
+  }
+  isMoveModalOpen.value = false;
+  movingFolder.value = null;
+}
+
+// Folder Create/Rename Modal state
 const isFolderModalOpen = ref(false);
 const folderModalMode = ref('create'); // 'create' | 'rename'
 const folderModalName = ref('');
 const editingFolderId = ref(null);
+const targetParentFolderId = ref(null);
 const folderModalInput = ref(null);
 
-function openCreateFolderModal() {
+const targetParentFolderName = computed(() => {
+  if (!targetParentFolderId.value || !store.activeListFolders) return null;
+  const f = store.activeListFolders.find(folder => folder.id === targetParentFolderId.value);
+  return f ? f.name : null;
+});
+
+function openCreateFolderModal(parentId = null) {
   folderModalMode.value = 'create';
+  targetParentFolderId.value = parentId;
   folderModalName.value = '';
   editingFolderId.value = null;
   isFolderModalOpen.value = true;
@@ -437,6 +400,7 @@ function openRenameFolderModal(folder) {
   folderModalMode.value = 'rename';
   folderModalName.value = folder.name;
   editingFolderId.value = folder.id;
+  targetParentFolderId.value = folder.parentId || null;
   isFolderModalOpen.value = true;
   nextTick(() => {
     if (folderModalInput.value) {
@@ -451,7 +415,7 @@ function handleSaveFolderModal() {
   if (!trimmed || !store.activeList) return;
 
   if (folderModalMode.value === 'create') {
-    store.createFolder(store.activeList.id, trimmed);
+    store.createFolder(store.activeList.id, trimmed, targetParentFolderId.value);
   } else if (folderModalMode.value === 'rename' && editingFolderId.value) {
     store.renameFolder(store.activeList.id, editingFolderId.value, trimmed);
   }
@@ -461,7 +425,7 @@ function handleSaveFolderModal() {
 function confirmDeleteFolder(folder) {
   openConfirmModal({
     title: `Delete Folder "${folder.name}"?`,
-    message: 'Items inside this folder will remain in your list and be moved to General (Unsorted).',
+    message: 'Any subfolders will be moved to the parent folder / top level, and items will be kept in General.',
     confirmText: 'Delete Folder',
     confirmType: 'danger',
     action: () => {
@@ -572,8 +536,36 @@ function handleMoveItem(itemId, direction) {
   }
 }
 
+function handleGlobalClick() {
+  if (openMenuFolderId.value) {
+    openMenuFolderId.value = null;
+  }
+}
+
+function handleAndroidBack() {
+  if (confirmDialog.value.isOpen) {
+    confirmDialog.value.isOpen = false;
+  } else if (openMenuFolderId.value) {
+    openMenuFolderId.value = null;
+  } else if (isMoveModalOpen.value) {
+    isMoveModalOpen.value = false;
+  } else if (isFolderModalOpen.value) {
+    isFolderModalOpen.value = false;
+  } else if (isSortSelectorOpen.value) {
+    isSortSelectorOpen.value = false;
+  } else if (store.isImportModalOpen) {
+    store.isImportModalOpen = false;
+  } else if (store.isSettingsModalOpen) {
+    store.isSettingsModalOpen = false;
+  } else if (store.isSidebarOpen) {
+    store.isSidebarOpen = false;
+  }
+}
+
 onMounted(() => {
   store.initApp();
+
+  window.addEventListener('click', handleGlobalClick);
 
   // Listen for OTA update notifications from Android
   window.addEventListener('web-update-ready', (e) => {
@@ -582,20 +574,11 @@ onMounted(() => {
   });
 
   // Listen for back press dispatched from Android
-  window.addEventListener('android-back', () => {
-    if (confirmDialog.value.isOpen) {
-      confirmDialog.value.isOpen = false;
-    } else if (isFolderModalOpen.value) {
-      isFolderModalOpen.value = false;
-    } else if (isSortSelectorOpen.value) {
-      isSortSelectorOpen.value = false;
-    } else if (store.isImportModalOpen) {
-      store.isImportModalOpen = false;
-    } else if (store.isSettingsModalOpen) {
-      store.isSettingsModalOpen = false;
-    } else if (store.isSidebarOpen) {
-      store.isSidebarOpen = false;
-    }
-  });
+  window.addEventListener('android-back', handleAndroidBack);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('click', handleGlobalClick);
+  window.removeEventListener('android-back', handleAndroidBack);
 });
 </script>

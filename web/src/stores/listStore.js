@@ -64,6 +64,174 @@ export const useListStore = defineStore('lists', {
       return [...list.folders].sort((a, b) => (a.position || 0) - (b.position || 0));
     },
 
+    activeListFoldersWithHierarchy: (state) => {
+      const list = state.lists.find(l => l.id === state.activeListId);
+      if (!list || !Array.isArray(list.folders) || list.folders.length === 0) return [];
+
+      const folderMap = new Map();
+      for (const f of list.folders) {
+        folderMap.set(f.id, { ...f, parentId: f.parentId || null, children: [] });
+      }
+
+      const roots = [];
+      for (const f of folderMap.values()) {
+        if (f.parentId && folderMap.has(f.parentId)) {
+          folderMap.get(f.parentId).children.push(f);
+        } else {
+          roots.push(f);
+        }
+      }
+
+      const sortNodes = (nodes) => {
+        nodes.sort((a, b) => (a.position || 0) - (b.position || 0));
+        for (const n of nodes) {
+          if (n.children.length > 0) sortNodes(n.children);
+        }
+      };
+      sortNodes(roots);
+
+      const result = [];
+      const traverse = (node, depth, pathParts) => {
+        const currentPath = [...pathParts, node.name];
+        result.push({
+          ...node,
+          depth,
+          path: currentPath.join(' / '),
+          hasChildren: node.children.length > 0
+        });
+        for (const child of node.children) {
+          traverse(child, depth + 1, currentPath);
+        }
+      };
+
+      for (const root of roots) {
+        traverse(root, 0, []);
+      }
+
+      return result;
+    },
+
+    activeListFoldersTree: (state) => {
+      const list = state.lists.find(l => l.id === state.activeListId);
+      if (!list || !Array.isArray(list.folders)) return [];
+
+      let filtered = list.items.filter(item => {
+        if (!state.showDeleted && item.status === 'deleted') {
+          return false;
+        }
+        if (state.searchQuery.trim()) {
+          const q = state.searchQuery.trim().toLowerCase();
+          const matchText = item.text && item.text.toLowerCase().includes(q);
+          const matchDetails = item.details && item.details.toLowerCase().includes(q);
+          return matchText || matchDetails;
+        }
+        return true;
+      });
+
+      const sortItems = (items) => {
+        const sorted = [...items];
+        switch (state.sortMode) {
+          case 'custom':
+            sorted.sort((a, b) => (a.position || 0) - (b.position || 0));
+            break;
+          case 'text-asc':
+            sorted.sort((a, b) => a.text.localeCompare(b.text, undefined, { sensitivity: 'base' }));
+            break;
+          case 'text-desc':
+            sorted.sort((a, b) => b.text.localeCompare(a.text, undefined, { sensitivity: 'base' }));
+            break;
+          case 'status': {
+            const statusOrder = { open: 1, completed: 2, deleted: 3 };
+            sorted.sort((a, b) => (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99));
+            break;
+          }
+          case 'created-desc':
+            sorted.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            break;
+          case 'created-asc':
+            sorted.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+            break;
+        }
+        return sorted;
+      };
+
+      const folderMap = new Map();
+      for (const f of list.folders) {
+        folderMap.set(f.id, {
+          ...f,
+          parentId: f.parentId || null,
+          items: sortItems(filtered.filter(i => i.folderId === f.id)),
+          children: []
+        });
+      }
+
+      const roots = [];
+      for (const f of folderMap.values()) {
+        if (f.parentId && folderMap.has(f.parentId)) {
+          folderMap.get(f.parentId).children.push(f);
+        } else {
+          roots.push(f);
+        }
+      }
+
+      const sortTree = (nodes) => {
+        nodes.sort((a, b) => (a.position || 0) - (b.position || 0));
+        for (const n of nodes) {
+          if (n.children.length > 0) sortTree(n.children);
+        }
+      };
+      sortTree(roots);
+
+      return roots;
+    },
+
+    unassignedItems: (state) => {
+      const list = state.lists.find(l => l.id === state.activeListId);
+      if (!list || !Array.isArray(list.items)) return [];
+
+      const knownFolderIds = new Set((list.folders || []).map(f => f.id));
+      let filtered = list.items.filter(item => {
+        if (!state.showDeleted && item.status === 'deleted') {
+          return false;
+        }
+        if (item.folderId && knownFolderIds.has(item.folderId)) {
+          return false;
+        }
+        if (state.searchQuery.trim()) {
+          const q = state.searchQuery.trim().toLowerCase();
+          const matchText = item.text && item.text.toLowerCase().includes(q);
+          const matchDetails = item.details && item.details.toLowerCase().includes(q);
+          return matchText || matchDetails;
+        }
+        return true;
+      });
+
+      const items = [...filtered];
+      switch (state.sortMode) {
+        case 'custom':
+          items.sort((a, b) => (a.position || 0) - (b.position || 0));
+          break;
+        case 'text-asc':
+          items.sort((a, b) => a.text.localeCompare(b.text, undefined, { sensitivity: 'base' }));
+          break;
+        case 'text-desc':
+          items.sort((a, b) => b.text.localeCompare(a.text, undefined, { sensitivity: 'base' }));
+          break;
+        case 'status': {
+          const statusOrder = { open: 1, completed: 2, deleted: 3 };
+          items.sort((a, b) => (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99));
+          break;
+        }
+        case 'created-desc':
+          items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+          break;
+        case 'created-asc':
+          items.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+          break;
+      }
+      return items;
+    },
+
     activeListItems: (state) => {
       const list = state.lists.find(l => l.id === state.activeListId);
       if (!list || !list.items) return [];
@@ -441,12 +609,20 @@ export const useListStore = defineStore('lists', {
         return {
           id: newFolderId,
           name: f.name,
+          originalParentId: f.parentId || null,
           position: f.position || (idx + 1),
           isCollapsed: !!f.isCollapsed,
           createdAt: now + idx,
           updatedAt: now + idx
         };
       });
+
+      for (const f of copiedFolders) {
+        f.parentId = f.originalParentId && folderMap.has(f.originalParentId)
+          ? folderMap.get(f.originalParentId)
+          : null;
+        delete f.originalParentId;
+      }
 
       // Copy only active (non-deleted) items, generate completely new UUIDs, set to 'open'
       const activeItems = (source.items || []).filter(item => item.status !== 'deleted');
@@ -517,7 +693,26 @@ export const useListStore = defineStore('lists', {
       this.activeTargetFolderId = folderId || null;
     },
 
-    async createFolder(listId, name) {
+    getFolderDescendantIds(listId, folderId) {
+      const list = this.lists.find(l => l.id === listId);
+      if (!list || !Array.isArray(list.folders)) return new Set();
+
+      const descendants = new Set();
+      const queue = [folderId];
+
+      while (queue.length > 0) {
+        const currentId = queue.shift();
+        for (const f of list.folders) {
+          if (f.parentId === currentId && !descendants.has(f.id)) {
+            descendants.add(f.id);
+            queue.push(f.id);
+          }
+        }
+      }
+      return descendants;
+    },
+
+    async createFolder(listId, name, parentId = null) {
       const trimmed = (name || '').trim();
       if (!trimmed) return null;
 
@@ -529,11 +724,14 @@ export const useListStore = defineStore('lists', {
       }
 
       const now = Date.now();
-      const maxPosition = list.folders.reduce((max, f) => Math.max(max, f.position || 0), 0);
+      const targetParentId = parentId || null;
+      const siblings = list.folders.filter(f => (f.parentId || null) === targetParentId);
+      const maxPosition = siblings.reduce((max, f) => Math.max(max, f.position || 0), 0);
 
       const newFolder = {
         id: generateUUID(),
         name: trimmed,
+        parentId: targetParentId,
         position: maxPosition + 1,
         isCollapsed: false,
         createdAt: now,
@@ -575,6 +773,50 @@ export const useListStore = defineStore('lists', {
       });
     },
 
+    async moveFolderParent(listId, folderId, newParentId = null) {
+      const list = this.lists.find(l => l.id === listId);
+      if (!list || !Array.isArray(list.folders)) return false;
+
+      const folder = list.folders.find(f => f.id === folderId);
+      if (!folder) return false;
+
+      const targetParentId = newParentId || null;
+
+      // Cannot move into itself
+      if (targetParentId === folderId) return false;
+
+      // Cannot move into any of its own descendants (would create cycle)
+      if (targetParentId !== null) {
+        const descendants = this.getFolderDescendantIds(listId, folderId);
+        if (descendants.has(targetParentId)) {
+          console.warn('Cannot move folder into its own descendant');
+          return false;
+        }
+        const parentExists = list.folders.some(f => f.id === targetParentId);
+        if (!parentExists) return false;
+      }
+
+      if ((folder.parentId || null) === targetParentId) return true;
+
+      const now = Date.now();
+      const siblings = list.folders.filter(f => f.id !== folderId && (f.parentId || null) === targetParentId);
+      const maxPosition = siblings.reduce((max, f) => Math.max(max, f.position || 0), 0);
+
+      folder.parentId = targetParentId;
+      folder.position = maxPosition + 1;
+      folder.updatedAt = now;
+      list.updatedAt = now;
+
+      await dbSaveList(list);
+      this.broadcastMutation({
+        type: 'folder_upsert',
+        listId: list.id,
+        folder
+      });
+
+      return true;
+    },
+
     async toggleFolderCollapse(listId, folderId) {
       const list = this.lists.find(l => l.id === listId);
       if (!list || !Array.isArray(list.folders)) return;
@@ -591,19 +833,34 @@ export const useListStore = defineStore('lists', {
       if (!list || !Array.isArray(list.folders)) return;
 
       const now = Date.now();
+      const folderToDelete = list.folders.find(f => f.id === folderId);
+      if (!folderToDelete) return;
+
+      const fallbackParentId = folderToDelete.parentId || null;
+
+      // 1. Reparent direct child subfolders to fallbackParentId
+      for (const f of list.folders) {
+        if (f.parentId === folderId) {
+          f.parentId = fallbackParentId;
+          f.updatedAt = now;
+        }
+      }
+
+      // 2. Remove the folder from the list
       list.folders = list.folders.filter(f => f.id !== folderId);
 
       if (this.activeTargetFolderId === folderId) {
-        this.activeTargetFolderId = null;
+        this.activeTargetFolderId = fallbackParentId;
       }
 
+      // 3. Handle items: move to parent folder or delete
       if (Array.isArray(list.items)) {
         for (const item of list.items) {
           if (item.folderId === folderId) {
             if (deleteItems) {
               item.status = 'deleted';
             } else {
-              item.folderId = null;
+              item.folderId = fallbackParentId;
             }
             item.updatedAt = now;
           }
@@ -617,6 +874,7 @@ export const useListStore = defineStore('lists', {
         type: 'folder_delete',
         listId: list.id,
         folderId,
+        fallbackParentId,
         deleteItems,
         updatedAt: now
       });
@@ -626,17 +884,23 @@ export const useListStore = defineStore('lists', {
       const list = this.lists.find(l => l.id === listId);
       if (!list || !Array.isArray(list.folders)) return;
 
-      const sortedFolders = [...list.folders].sort((a, b) => (a.position || 0) - (b.position || 0));
-      const currentIndex = sortedFolders.findIndex(f => f.id === folderId);
+      const currentFolder = list.folders.find(f => f.id === folderId);
+      if (!currentFolder) return;
+
+      const parentId = currentFolder.parentId || null;
+      const siblings = list.folders
+        .filter(f => (f.parentId || null) === parentId)
+        .sort((a, b) => (a.position || 0) - (b.position || 0));
+
+      const currentIndex = siblings.findIndex(f => f.id === folderId);
       if (currentIndex === -1) return;
 
       const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-      if (targetIndex < 0 || targetIndex >= sortedFolders.length) return;
+      if (targetIndex < 0 || targetIndex >= siblings.length) return;
 
-      const currentFolder = sortedFolders[currentIndex];
-      const targetFolder = sortedFolders[targetIndex];
-
+      const targetFolder = siblings[targetIndex];
       const now = Date.now();
+
       const tempPos = currentFolder.position;
       currentFolder.position = targetFolder.position;
       targetFolder.position = tempPos;
@@ -1008,7 +1272,10 @@ export const useListStore = defineStore('lists', {
 
           const localFolder = localList.folders.find(f => f.id === remoteFolder.id);
           if (!localFolder) {
-            localList.folders.push(remoteFolder);
+            localList.folders.push({
+              ...remoteFolder,
+              parentId: remoteFolder.parentId || null
+            });
             if (remoteFolder.updatedAt > localList.updatedAt) {
               localList.updatedAt = remoteFolder.updatedAt;
             }
@@ -1016,6 +1283,7 @@ export const useListStore = defineStore('lists', {
           } else {
             if (this.isRemoteWinning(remoteFolder.updatedAt, remoteFolder.id, localFolder.updatedAt, localFolder.id)) {
               localFolder.name = remoteFolder.name;
+              localFolder.parentId = remoteFolder.parentId !== undefined ? remoteFolder.parentId : (localFolder.parentId || null);
               localFolder.position = remoteFolder.position;
               localFolder.isCollapsed = !!remoteFolder.isCollapsed;
               localFolder.updatedAt = remoteFolder.updatedAt;
@@ -1029,9 +1297,22 @@ export const useListStore = defineStore('lists', {
         }
 
         case 'folder_delete': {
-          const { listId, folderId, deleteItems, updatedAt } = mutation;
+          const { listId, folderId, fallbackParentId, deleteItems, updatedAt } = mutation;
           const localList = this.lists.find(l => l.id === listId);
           if (!localList || !Array.isArray(localList.folders)) return;
+
+          const deletedFolder = localList.folders.find(f => f.id === folderId);
+          const resolvedParentId = fallbackParentId !== undefined
+            ? fallbackParentId
+            : (deletedFolder ? (deletedFolder.parentId || null) : null);
+
+          // Reparent children to fallbackParentId
+          for (const f of localList.folders) {
+            if (f.parentId === folderId) {
+              f.parentId = resolvedParentId;
+              f.updatedAt = updatedAt || Date.now();
+            }
+          }
 
           const folderIndex = localList.folders.findIndex(f => f.id === folderId);
           if (folderIndex !== -1) {
@@ -1042,7 +1323,7 @@ export const useListStore = defineStore('lists', {
                   if (deleteItems) {
                     item.status = 'deleted';
                   } else {
-                    item.folderId = null;
+                    item.folderId = resolvedParentId;
                   }
                   item.updatedAt = updatedAt || Date.now();
                 }
@@ -1115,11 +1396,15 @@ export const useListStore = defineStore('lists', {
       for (const remoteFolder of remoteFolders) {
         const localFolder = localList.folders.find(f => f.id === remoteFolder.id);
         if (!localFolder) {
-          localList.folders.push(remoteFolder);
+          localList.folders.push({
+            ...remoteFolder,
+            parentId: remoteFolder.parentId || null
+          });
           changed = true;
         } else {
           if (this.isRemoteWinning(remoteFolder.updatedAt, remoteFolder.id, localFolder.updatedAt, localFolder.id)) {
             localFolder.name = remoteFolder.name;
+            localFolder.parentId = remoteFolder.parentId !== undefined ? remoteFolder.parentId : (localFolder.parentId || null);
             localFolder.position = remoteFolder.position;
             localFolder.isCollapsed = !!remoteFolder.isCollapsed;
             localFolder.updatedAt = remoteFolder.updatedAt;

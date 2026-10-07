@@ -21,14 +21,16 @@
           :key="f.id"
           type="button"
           @click="selectFolder(f.id)"
-          class="px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition-all border shrink-0"
+          :title="f.path || f.name"
+          class="px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition-all border shrink-0 flex items-center space-x-1"
           :class="[
             selectedFolderId === f.id
               ? 'bg-[#6750A4] text-white border-[#6750A4] shadow-sm'
               : 'bg-white text-[#49454F] border-[#CAC4D0] hover:bg-[#F3F0F7]'
           ]"
         >
-          📁 {{ f.name }}
+          <span v-if="f.depth > 0" class="opacity-60 text-[10px]">↳</span>
+          <span>📁 {{ f.name }}</span>
         </button>
       </div>
 

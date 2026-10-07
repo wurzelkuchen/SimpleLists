@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
@@ -40,10 +42,14 @@ jobs:
       - name: Bundle Web Assets into Android
         run: |
           VERSION=$(git log -1 --format=%ct)
+          BUILD_NUM=$(git rev-list --count HEAD)
+          GIT_SHA=$(git rev-parse --short HEAD)
           cat <<EOF > web/dist/version.json
           {
             "version": $VERSION,
-            "gitSha": "${{ github.sha }}",
+            "buildNumber": $BUILD_NUM,
+            "versionName": "1.0.$BUILD_NUM",
+            "gitSha": "$GIT_SHA",
             "builtAt": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
             "zipUrl": "https://wurzelkuchen.github.io/SimpleLists/web-dist.zip?v=$VERSION"
           }
